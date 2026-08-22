@@ -1,4 +1,4 @@
-import { db } from "../index";
+import { db } from "../lib/index";
 import { merchants, products } from "../db/schema";
 
 const categories = [
@@ -48,7 +48,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     Electronics: [
         {
             name: "Wireless Noise Cancelling Headphones",
-            description: "Over-ear wireless headphones with active noise cancellation.",
+            description:
+                "Over-ear wireless headphones with active noise cancellation.",
             minPrice: 2999,
             maxPrice: 14999,
             attributes: () => ({
@@ -61,7 +62,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Portable Bluetooth Speaker",
-            description: "Compact wireless speaker designed for indoor and outdoor use.",
+            description:
+                "Compact wireless speaker designed for indoor and outdoor use.",
             minPrice: 1499,
             maxPrice: 8999,
             attributes: () => ({
@@ -74,7 +76,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Smart LED TV",
-            description: "Smart television with streaming apps and high-definition display.",
+            description:
+                "Smart television with streaming apps and high-definition display.",
             minPrice: 17999,
             maxPrice: 79999,
             attributes: () => ({
@@ -87,7 +90,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Smartwatch",
-            description: "Fitness-focused smartwatch with health tracking and notifications.",
+            description:
+                "Fitness-focused smartwatch with health tracking and notifications.",
             minPrice: 1999,
             maxPrice: 24999,
             attributes: () => ({
@@ -100,7 +104,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Power Bank",
-            description: "Portable fast-charging power bank for smartphones and accessories.",
+            description:
+                "Portable fast-charging power bank for smartphones and accessories.",
             minPrice: 999,
             maxPrice: 4999,
             attributes: () => ({
@@ -115,11 +120,16 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     Clothing: [
         {
             name: "Men's Cotton Casual Shirt",
-            description: "Comfortable regular-fit cotton shirt for everyday wear.",
+            description:
+                "Comfortable regular-fit cotton shirt for everyday wear.",
             minPrice: 699,
             maxPrice: 2499,
             attributes: () => ({
-                material: randomChoice(["100% Cotton", "Cotton Blend", "Linen Blend"]),
+                material: randomChoice([
+                    "100% Cotton",
+                    "Cotton Blend",
+                    "Linen Blend",
+                ]),
                 fit: randomChoice(["Regular", "Slim", "Relaxed"]),
                 size: randomChoice(["S", "M", "L", "XL", "XXL"]),
                 washable: true,
@@ -127,19 +137,25 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Women's Casual Kurti",
-            description: "Comfortable printed kurti suitable for everyday occasions.",
+            description:
+                "Comfortable printed kurti suitable for everyday occasions.",
             minPrice: 599,
             maxPrice: 1999,
             attributes: () => ({
                 material: randomChoice(["Cotton", "Rayon", "Viscose"]),
                 size: randomChoice(["S", "M", "L", "XL"]),
-                sleeve: randomChoice(["Full Sleeve", "Three Quarter", "Short Sleeve"]),
+                sleeve: randomChoice([
+                    "Full Sleeve",
+                    "Three Quarter",
+                    "Short Sleeve",
+                ]),
                 machineWash: true,
             }),
         },
         {
             name: "Unisex Cotton Hoodie",
-            description: "Warm cotton-blend hoodie designed for casual everyday wear.",
+            description:
+                "Warm cotton-blend hoodie designed for casual everyday wear.",
             minPrice: 999,
             maxPrice: 2999,
             attributes: () => ({
@@ -163,7 +179,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Women's Cotton T-Shirt",
-            description: "Soft cotton everyday t-shirt with a relaxed silhouette.",
+            description:
+                "Soft cotton everyday t-shirt with a relaxed silhouette.",
             minPrice: 499,
             maxPrice: 1499,
             attributes: () => ({
@@ -178,11 +195,16 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     Footwear: [
         {
             name: "Running Shoes",
-            description: "Lightweight running shoes designed for daily training.",
+            description:
+                "Lightweight running shoes designed for daily training.",
             minPrice: 1499,
             maxPrice: 8999,
             attributes: () => ({
-                material: randomChoice(["Mesh", "Engineered Mesh", "Synthetic"]),
+                material: randomChoice([
+                    "Mesh",
+                    "Engineered Mesh",
+                    "Synthetic",
+                ]),
                 size: randomNumber(6, 11),
                 sole: randomChoice(["EVA", "Rubber", "EVA + Rubber"]),
                 lightweight: true,
@@ -190,7 +212,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Casual Sneakers",
-            description: "Everyday sneakers combining comfort and casual styling.",
+            description:
+                "Everyday sneakers combining comfort and casual styling.",
             minPrice: 1299,
             maxPrice: 6999,
             attributes: () => ({
@@ -202,7 +225,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Leather Formal Shoes",
-            description: "Classic formal shoes suitable for office and business occasions.",
+            description:
+                "Classic formal shoes suitable for office and business occasions.",
             minPrice: 1999,
             maxPrice: 7999,
             attributes: () => ({
@@ -214,7 +238,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Sports Sandals",
-            description: "Lightweight sandals designed for outdoor and casual activities.",
+            description:
+                "Lightweight sandals designed for outdoor and casual activities.",
             minPrice: 799,
             maxPrice: 2999,
             attributes: () => ({
@@ -241,7 +266,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     Books: [
         {
             name: "The Psychology of Money",
-            description: "A practical book about money, investing, and financial behaviour.",
+            description:
+                "A practical book about money, investing, and financial behaviour.",
             minPrice: 299,
             maxPrice: 599,
             attributes: () => ({
@@ -253,7 +279,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Atomic Habits",
-            description: "A practical guide to building better habits and breaking bad ones.",
+            description:
+                "A practical guide to building better habits and breaking bad ones.",
             minPrice: 299,
             maxPrice: 699,
             attributes: () => ({
@@ -265,7 +292,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Clean Code",
-            description: "A guide to writing readable, maintainable, and professional software.",
+            description:
+                "A guide to writing readable, maintainable, and professional software.",
             minPrice: 499,
             maxPrice: 999,
             attributes: () => ({
@@ -277,7 +305,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Deep Work",
-            description: "Strategies for focused work and improving productivity.",
+            description:
+                "Strategies for focused work and improving productivity.",
             minPrice: 299,
             maxPrice: 599,
             attributes: () => ({
@@ -289,7 +318,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Ikigai",
-            description: "A book exploring Japanese ideas around purpose and meaningful living.",
+            description:
+                "A book exploring Japanese ideas around purpose and meaningful living.",
             minPrice: 199,
             maxPrice: 499,
             attributes: () => ({
@@ -316,7 +346,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Stainless Steel Water Bottle",
-            description: "Reusable insulated bottle for home, office, and travel.",
+            description:
+                "Reusable insulated bottle for home, office, and travel.",
             minPrice: 499,
             maxPrice: 1999,
             attributes: () => ({
@@ -340,7 +371,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Electric Kettle",
-            description: "Fast-boiling electric kettle for tea, coffee, and hot water.",
+            description:
+                "Fast-boiling electric kettle for tea, coffee, and hot water.",
             minPrice: 999,
             maxPrice: 2499,
             attributes: () => ({
@@ -352,7 +384,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Mixer Grinder",
-            description: "Multi-purpose mixer grinder for everyday kitchen preparation.",
+            description:
+                "Multi-purpose mixer grinder for everyday kitchen preparation.",
             minPrice: 1999,
             maxPrice: 6999,
             attributes: () => ({
@@ -367,7 +400,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     Furniture: [
         {
             name: "Study Table",
-            description: "Compact workstation suitable for study and home office use.",
+            description:
+                "Compact workstation suitable for study and home office use.",
             minPrice: 2999,
             maxPrice: 9999,
             attributes: () => ({
@@ -379,7 +413,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Ergonomic Office Chair",
-            description: "Adjustable office chair designed for long working sessions.",
+            description:
+                "Adjustable office chair designed for long working sessions.",
             minPrice: 4999,
             maxPrice: 19999,
             attributes: () => ({
@@ -430,7 +465,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Beauty & Personal Care": [
         {
             name: "Vitamin C Face Serum",
-            description: "Lightweight facial serum designed for daily skincare routines.",
+            description:
+                "Lightweight facial serum designed for daily skincare routines.",
             minPrice: 399,
             maxPrice: 1499,
             attributes: () => ({
@@ -442,7 +478,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Moisturizing Face Cream",
-            description: "Daily moisturizer designed to hydrate and protect the skin.",
+            description:
+                "Daily moisturizer designed to hydrate and protect the skin.",
             minPrice: 299,
             maxPrice: 1299,
             attributes: () => ({
@@ -466,7 +503,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Electric Hair Trimmer",
-            description: "Rechargeable trimmer for beard and personal grooming.",
+            description:
+                "Rechargeable trimmer for beard and personal grooming.",
             minPrice: 699,
             maxPrice: 2999,
             attributes: () => ({
@@ -478,7 +516,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Hair Dryer",
-            description: "Compact hair dryer with multiple heat and speed settings.",
+            description:
+                "Compact hair dryer with multiple heat and speed settings.",
             minPrice: 999,
             maxPrice: 3999,
             attributes: () => ({
@@ -505,7 +544,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Cold Pressed Cooking Oil",
-            description: "Premium cooking oil suitable for everyday Indian cooking.",
+            description:
+                "Premium cooking oil suitable for everyday Indian cooking.",
             minPrice: 299,
             maxPrice: 899,
             attributes: () => ({
@@ -517,7 +557,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Organic Whole Wheat Flour",
-            description: "Whole wheat flour suitable for rotis and everyday cooking.",
+            description:
+                "Whole wheat flour suitable for rotis and everyday cooking.",
             minPrice: 199,
             maxPrice: 499,
             attributes: () => ({
@@ -529,7 +570,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Green Tea",
-            description: "Light and refreshing green tea for everyday consumption.",
+            description:
+                "Light and refreshing green tea for everyday consumption.",
             minPrice: 199,
             maxPrice: 599,
             attributes: () => ({
@@ -556,7 +598,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Sports & Fitness": [
         {
             name: "Adjustable Dumbbell Set",
-            description: "Adjustable dumbbell set suitable for home strength training.",
+            description:
+                "Adjustable dumbbell set suitable for home strength training.",
             minPrice: 1999,
             maxPrice: 9999,
             attributes: () => ({
@@ -568,7 +611,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Yoga Mat",
-            description: "Non-slip exercise mat designed for yoga and floor workouts.",
+            description:
+                "Non-slip exercise mat designed for yoga and floor workouts.",
             minPrice: 499,
             maxPrice: 2499,
             attributes: () => ({
@@ -580,7 +624,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Cricket Bat",
-            description: "English willow-style cricket bat for recreational and competitive play.",
+            description:
+                "English willow-style cricket bat for recreational and competitive play.",
             minPrice: 1999,
             maxPrice: 19999,
             attributes: () => ({
@@ -592,7 +637,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Football",
-            description: "Durable training football suitable for outdoor matches.",
+            description:
+                "Durable training football suitable for outdoor matches.",
             minPrice: 599,
             maxPrice: 2999,
             attributes: () => ({
@@ -604,7 +650,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Resistance Band Set",
-            description: "Multi-level resistance bands for strength and mobility workouts.",
+            description:
+                "Multi-level resistance bands for strength and mobility workouts.",
             minPrice: 499,
             maxPrice: 1999,
             attributes: () => ({
@@ -643,7 +690,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Board Game",
-            description: "Family-friendly strategy and entertainment board game.",
+            description:
+                "Family-friendly strategy and entertainment board game.",
             minPrice: 399,
             maxPrice: 1999,
             attributes: () => ({
@@ -655,7 +703,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Jigsaw Puzzle",
-            description: "Detailed jigsaw puzzle designed for children and families.",
+            description:
+                "Detailed jigsaw puzzle designed for children and families.",
             minPrice: 299,
             maxPrice: 999,
             attributes: () => ({
@@ -682,7 +731,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Jewelry & Accessories": [
         {
             name: "Stainless Steel Analog Watch",
-            description: "Classic analog watch suitable for everyday and formal wear.",
+            description:
+                "Classic analog watch suitable for everyday and formal wear.",
             minPrice: 999,
             maxPrice: 6999,
             attributes: () => ({
@@ -694,11 +744,16 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Minimalist Pendant Necklace",
-            description: "Minimal pendant necklace designed for everyday styling.",
+            description:
+                "Minimal pendant necklace designed for everyday styling.",
             minPrice: 499,
             maxPrice: 2999,
             attributes: () => ({
-                material: randomChoice(["Stainless Steel", "925 Silver", "Alloy"]),
+                material: randomChoice([
+                    "Stainless Steel",
+                    "925 Silver",
+                    "Alloy",
+                ]),
                 chainLengthCm: randomNumber(40, 50),
                 hypoallergenic: randomBoolean(),
                 plated: true,
@@ -706,7 +761,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Fashion Bracelet",
-            description: "Lightweight bracelet suitable for casual and festive styling.",
+            description:
+                "Lightweight bracelet suitable for casual and festive styling.",
             minPrice: 299,
             maxPrice: 1999,
             attributes: () => ({
@@ -722,7 +778,11 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
             minPrice: 499,
             maxPrice: 3999,
             attributes: () => ({
-                frameMaterial: randomChoice(["Acetate", "Polycarbonate", "Metal"]),
+                frameMaterial: randomChoice([
+                    "Acetate",
+                    "Polycarbonate",
+                    "Metal",
+                ]),
                 uvProtection: "UV400",
                 polarized: randomBoolean(),
                 lensColor: randomChoice(["Black", "Brown", "Blue"]),
@@ -730,11 +790,16 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Fashion Earrings",
-            description: "Lightweight earrings suitable for casual and occasion wear.",
+            description:
+                "Lightweight earrings suitable for casual and occasion wear.",
             minPrice: 299,
             maxPrice: 2499,
             attributes: () => ({
-                material: randomChoice(["Stainless Steel", "Alloy", "925 Silver"]),
+                material: randomChoice([
+                    "Stainless Steel",
+                    "Alloy",
+                    "925 Silver",
+                ]),
                 hypoallergenic: randomBoolean(),
                 plating: randomChoice(["Gold", "Rose Gold", "Silver"]),
                 pair: true,
@@ -745,7 +810,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Bags & Luggage": [
         {
             name: "Laptop Backpack",
-            description: "Water-resistant backpack with a dedicated laptop compartment.",
+            description:
+                "Water-resistant backpack with a dedicated laptop compartment.",
             minPrice: 999,
             maxPrice: 4999,
             attributes: () => ({
@@ -808,7 +874,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     Automotive: [
         {
             name: "Car Dash Camera",
-            description: "Compact dashboard camera for recording road journeys.",
+            description:
+                "Compact dashboard camera for recording road journeys.",
             minPrice: 2999,
             maxPrice: 9999,
             attributes: () => ({
@@ -820,7 +887,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Car Vacuum Cleaner",
-            description: "Portable vacuum cleaner for cleaning vehicle interiors.",
+            description:
+                "Portable vacuum cleaner for cleaning vehicle interiors.",
             minPrice: 999,
             maxPrice: 3999,
             attributes: () => ({
@@ -844,7 +912,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Car Air Compressor",
-            description: "Portable electric tyre inflator for cars and motorcycles.",
+            description:
+                "Portable electric tyre inflator for cars and motorcycles.",
             minPrice: 1499,
             maxPrice: 4999,
             attributes: () => ({
@@ -856,7 +925,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Car Cleaning Kit",
-            description: "Multi-piece cleaning kit for vehicle interiors and exteriors.",
+            description:
+                "Multi-piece cleaning kit for vehicle interiors and exteriors.",
             minPrice: 499,
             maxPrice: 1999,
             attributes: () => ({
@@ -871,11 +941,17 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Mobile Phones": [
         {
             name: "Android Smartphone",
-            description: "Modern Android smartphone with a high-refresh-rate display.",
+            description:
+                "Modern Android smartphone with a high-refresh-rate display.",
             minPrice: 11999,
             maxPrice: 79999,
             attributes: () => ({
-                brand: randomChoice(["Samsung", "OnePlus", "Xiaomi", "Motorola"]),
+                brand: randomChoice([
+                    "Samsung",
+                    "OnePlus",
+                    "Xiaomi",
+                    "Motorola",
+                ]),
                 ramGB: randomChoice([6, 8, 12]),
                 storageGB: randomChoice([128, 256, 512]),
                 batteryMah: randomChoice([4500, 5000, 5500]),
@@ -884,7 +960,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Budget Smartphone",
-            description: "Affordable smartphone designed for everyday communication and entertainment.",
+            description:
+                "Affordable smartphone designed for everyday communication and entertainment.",
             minPrice: 6999,
             maxPrice: 15999,
             attributes: () => ({
@@ -897,7 +974,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Premium Smartphone",
-            description: "Flagship smartphone with premium camera and performance hardware.",
+            description:
+                "Flagship smartphone with premium camera and performance hardware.",
             minPrice: 49999,
             maxPrice: 149999,
             attributes: () => ({
@@ -910,7 +988,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Smartphone Case",
-            description: "Protective smartphone case with shock-resistant construction.",
+            description:
+                "Protective smartphone case with shock-resistant construction.",
             minPrice: 299,
             maxPrice: 1499,
             attributes: () => ({
@@ -922,7 +1001,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Fast USB-C Charger",
-            description: "Compact fast charger compatible with modern smartphones.",
+            description:
+                "Compact fast charger compatible with modern smartphones.",
             minPrice: 699,
             maxPrice: 2499,
             attributes: () => ({
@@ -937,7 +1017,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Computers & Laptops": [
         {
             name: "Thin and Light Laptop",
-            description: "Portable laptop designed for productivity, coding, and everyday use.",
+            description:
+                "Portable laptop designed for productivity, coding, and everyday use.",
             minPrice: 44999,
             maxPrice: 99999,
             attributes: () => ({
@@ -950,7 +1031,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Gaming Laptop",
-            description: "High-performance laptop with dedicated graphics for gaming and creative work.",
+            description:
+                "High-performance laptop with dedicated graphics for gaming and creative work.",
             minPrice: 64999,
             maxPrice: 179999,
             attributes: () => ({
@@ -963,19 +1045,25 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Wireless Mechanical Keyboard",
-            description: "Mechanical keyboard suitable for gaming and productivity.",
+            description:
+                "Mechanical keyboard suitable for gaming and productivity.",
             minPrice: 1999,
             maxPrice: 9999,
             attributes: () => ({
                 switches: randomChoice(["Red", "Brown", "Blue"]),
-                connectivity: randomChoice(["Bluetooth", "2.4GHz", "Bluetooth + 2.4GHz"]),
+                connectivity: randomChoice([
+                    "Bluetooth",
+                    "2.4GHz",
+                    "Bluetooth + 2.4GHz",
+                ]),
                 backlit: true,
                 wireless: true,
             }),
         },
         {
             name: "Wireless Gaming Mouse",
-            description: "Low-latency wireless mouse designed for gaming and productivity.",
+            description:
+                "Low-latency wireless mouse designed for gaming and productivity.",
             minPrice: 1499,
             maxPrice: 6999,
             attributes: () => ({
@@ -987,7 +1075,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "27-inch Monitor",
-            description: "High-resolution monitor suitable for productivity and entertainment.",
+            description:
+                "High-resolution monitor suitable for productivity and entertainment.",
             minPrice: 12999,
             maxPrice: 39999,
             attributes: () => ({
@@ -1002,7 +1091,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Cameras & Photography": [
         {
             name: "Mirrorless Camera",
-            description: "Interchangeable-lens mirrorless camera for photography and video.",
+            description:
+                "Interchangeable-lens mirrorless camera for photography and video.",
             minPrice: 49999,
             maxPrice: 149999,
             attributes: () => ({
@@ -1014,7 +1104,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Full Frame Camera",
-            description: "Professional full-frame camera for photography and video production.",
+            description:
+                "Professional full-frame camera for photography and video production.",
             minPrice: 99999,
             maxPrice: 299999,
             attributes: () => ({
@@ -1026,7 +1117,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Camera Lens",
-            description: "Interchangeable camera lens for portrait and general photography.",
+            description:
+                "Interchangeable camera lens for portrait and general photography.",
             minPrice: 19999,
             maxPrice: 129999,
             attributes: () => ({
@@ -1038,7 +1130,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Camera Tripod",
-            description: "Adjustable tripod for stable photography and video recording.",
+            description:
+                "Adjustable tripod for stable photography and video recording.",
             minPrice: 1499,
             maxPrice: 7999,
             attributes: () => ({
@@ -1050,7 +1143,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Action Camera",
-            description: "Compact action camera designed for travel and outdoor recording.",
+            description:
+                "Compact action camera designed for travel and outdoor recording.",
             minPrice: 4999,
             maxPrice: 39999,
             attributes: () => ({
@@ -1065,7 +1159,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     Appliances: [
         {
             name: "Double Door Refrigerator",
-            description: "Energy-efficient refrigerator with spacious storage compartments.",
+            description:
+                "Energy-efficient refrigerator with spacious storage compartments.",
             minPrice: 24999,
             maxPrice: 69999,
             attributes: () => ({
@@ -1077,7 +1172,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Front Load Washing Machine",
-            description: "Automatic washing machine with multiple wash programs.",
+            description:
+                "Automatic washing machine with multiple wash programs.",
             minPrice: 24999,
             maxPrice: 59999,
             attributes: () => ({
@@ -1101,7 +1197,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Split Air Conditioner",
-            description: "Energy-efficient split AC designed for residential cooling.",
+            description:
+                "Energy-efficient split AC designed for residential cooling.",
             minPrice: 29999,
             maxPrice: 69999,
             attributes: () => ({
@@ -1128,7 +1225,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
     "Health & Wellness": [
         {
             name: "Digital Blood Pressure Monitor",
-            description: "Automatic digital monitor for home blood pressure tracking.",
+            description:
+                "Automatic digital monitor for home blood pressure tracking.",
             minPrice: 999,
             maxPrice: 3999,
             attributes: () => ({
@@ -1152,7 +1250,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Massage Gun",
-            description: "Portable percussion massager designed for post-workout recovery.",
+            description:
+                "Portable percussion massager designed for post-workout recovery.",
             minPrice: 1499,
             maxPrice: 7999,
             attributes: () => ({
@@ -1164,7 +1263,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Foam Roller",
-            description: "High-density foam roller for stretching and muscle recovery.",
+            description:
+                "High-density foam roller for stretching and muscle recovery.",
             minPrice: 499,
             maxPrice: 1999,
             attributes: () => ({
@@ -1176,7 +1276,8 @@ const productCatalog: Record<Category, ProductTemplate[]> = {
         },
         {
             name: "Electric Heating Pad",
-            description: "Reusable heating pad for general comfort and relaxation.",
+            description:
+                "Reusable heating pad for general comfort and relaxation.",
             minPrice: 599,
             maxPrice: 1999,
             attributes: () => ({
@@ -1242,7 +1343,11 @@ async function seedProducts() {
     const productData = [];
 
     // 2. Generate 5 products for every merchant.
-    for (let merchantIndex = 0; merchantIndex < merchantList.length; merchantIndex++) {
+    for (
+        let merchantIndex = 0;
+        merchantIndex < merchantList.length;
+        merchantIndex++
+    ) {
         const merchant = merchantList[merchantIndex];
 
         for (let productIndex = 0; productIndex < 5; productIndex++) {

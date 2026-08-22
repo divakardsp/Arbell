@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import  {db}  from "../index";
+import { db } from "../lib/index";
 import { merchants } from "../db/schema";
 
 const merchantData = [
