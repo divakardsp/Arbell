@@ -335,6 +335,18 @@ export const CATEGORY_ATTRIBUTES_CONFIG: Record<
 };
 
 /**
+ * Global registry of all unique searchable attributes across all product categories.
+ */
+export const ALL_ATTRIBUTES_CONFIG: Record<string, AttributeConfig> = {};
+for (const catConfig of Object.values(CATEGORY_ATTRIBUTES_CONFIG)) {
+    for (const [attrName, config] of Object.entries(catConfig)) {
+        if (!ALL_ATTRIBUTES_CONFIG[attrName]) {
+            ALL_ATTRIBUTES_CONFIG[attrName] = config;
+        }
+    }
+}
+
+/**
  * Returns the dictionary of allowed searchable attributes for a specific category.
  */
 export function getAllowedAttributesForCategory(
@@ -348,23 +360,25 @@ export function getAllowedAttributesForCategory(
 }
 
 /**
- * Dynamically builds SQL conditions for JSONB attributes based on the category configuration.
+ * Dynamically builds SQL conditions for JSONB attributes.
+ * - If category is provided: Scopes allowed attributes to that category's configuration.
+ * - If category is omitted: Uses ALL_ATTRIBUTES_CONFIG to allow cross-category attribute filtering (e.g. brand, material, etc.).
  *
  * Flow:
- * Category -> Determine allowed attributes -> Build filters dynamically -> Query JSONB attributes
+ * Category (or Global) -> Determine allowed attributes -> Build filters dynamically -> Query JSONB attributes
  */
 export function buildJsonbAttributeFilters(
     category: string | undefined,
     rawAttributes: Record<string, string>
 ): SQL[] {
-    if (!category) {
+    if (!rawAttributes || Object.keys(rawAttributes).length === 0) {
         return [];
     }
 
-    const allowedAttributes = getAllowedAttributesForCategory(category);
-    if (!allowedAttributes) {
-        return [];
-    }
+    // Determine target attributes dictionary: category-scoped or global
+    const allowedAttributes: Record<string, AttributeConfig> = category
+        ? getAllowedAttributesForCategory(category) ?? ALL_ATTRIBUTES_CONFIG
+        : ALL_ATTRIBUTES_CONFIG;
 
     const conditions: SQL[] = [];
 

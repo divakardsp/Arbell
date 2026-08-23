@@ -74,7 +74,7 @@ export async function searchProducts(
 
     const conditions: SQL[] = [];
 
-    // 1. Category validation and dynamic JSONB attributes
+    // 1. Category validation
     let matchedCategory: (typeof categoryEnum.enumValues)[number] | undefined;
 
     if (params.category !== undefined && params.category !== null && String(params.category).trim() !== "") {
@@ -88,15 +88,15 @@ export async function searchProducts(
         }
 
         conditions.push(eq(products.category, matchedCategory));
+    }
 
-        // Dynamically build JSONB filters using category configuration
-        if (params.attributes && Object.keys(params.attributes).length > 0) {
-            const jsonbConditions = buildJsonbAttributeFilters(
-                matchedCategory,
-                params.attributes
-            );
-            conditions.push(...jsonbConditions);
-        }
+    // 2. Dynamic JSONB attributes filter (scoped to category if provided, or cross-category if omitted)
+    if (params.attributes && Object.keys(params.attributes).length > 0) {
+        const jsonbConditions = buildJsonbAttributeFilters(
+            matchedCategory,
+            params.attributes
+        );
+        conditions.push(...jsonbConditions);
     }
 
     // 2. Keyword Search (productName, description)
