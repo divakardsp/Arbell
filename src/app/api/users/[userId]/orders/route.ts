@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getUserOrderHistory } from "@/services/user-service";
 import { ApiResponse } from "@/utils/ApiResponse";
 import { handleApiError } from "@/utils/errorHandler";

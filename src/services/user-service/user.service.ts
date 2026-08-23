@@ -2,24 +2,14 @@ import { eq, inArray, desc } from "drizzle-orm";
 import { db } from "@/lib";
 import { users, orders, orderItems, merchants, payments } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
-
-const UUID_REGEX =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { validateUUID } from "@/utils/validators";
 
 /**
  * Validates that the provided ID is a valid UUID string.
- * Throws a 400 Bad Request ApiError if invalid.
+ * @deprecated Use `validateUUID` from `@/utils/validators` instead.
  */
-export function validateUserId(userId: string): void {
-    if (!userId || typeof userId !== "string" || userId.trim() === "") {
-        throw ApiError.badRequest("User ID is required and must be a non-empty string.");
-    }
-
-    if (!UUID_REGEX.test(userId.trim())) {
-        throw ApiError.badRequest(
-            `Invalid user ID format: '${userId}'. Expected a valid UUID (e.g. 123e4567-e89b-12d3-a456-426614174000).`
-        );
-    }
+export function validateUserId(userId: string): string {
+    return validateUUID(userId, "User ID");
 }
 
 export interface UserDetails {
