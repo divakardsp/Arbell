@@ -1,7 +1,7 @@
-import { healthy } from "@/services/health-service/health";
+import { healthy } from "@/services/health-service";
 import { NextResponse } from "next/server";
 
-export async function GET(req: Request){
+export async function GET() {
     const response = await healthy();
     return NextResponse.json(response);
 }
