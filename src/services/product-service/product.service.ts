@@ -1,8 +1,13 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, or, ilike, gte, lte, gt, count, SQL } from "drizzle-orm";
 import { db } from "@/lib";
 import { products, merchants, categoryEnum } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
-import { validateUUID } from "@/utils/validators";
+import { validateUUID, parsePaginationParams } from "@/utils/validators";
+import {
+    buildJsonbAttributeFilters,
+    getAllowedAttributesForCategory,
+    CATEGORY_ATTRIBUTES_CONFIG,
+} from "./category-attributes.config";
 
 export interface ProductMerchantSummary {
     id: string;
@@ -29,6 +34,184 @@ export interface ProductCategoriesResponse {
 export interface ProductComparisonResponse {
     count: number;
     products: ProductDetail[];
+}
+
+export interface ProductSearchParams {
+    search?: string | null;
+    category?: string | null;
+    merchantId?: string | null;
+    minPrice?: string | number | null;
+    maxPrice?: string | number | null;
+    inStock?: string | boolean | null;
+    page?: string | number | null;
+    limit?: string | number | null;
+    attributes?: Record<string, string>;
+}
+
+export interface SearchProductsResponse {
+    products: ProductDetail[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+    };
+}
+
+/**
+ * Searches and filters products dynamically.
+ *
+ * Flow:
+ * Category -> Determine allowed attributes -> Build filters dynamically -> Query JSONB attributes
+ * Omits metadata timestamps.
+ */
+export async function searchProducts(
+    params: ProductSearchParams = {}
+): Promise<SearchProductsResponse> {
+    const pageStr = params.page !== undefined && params.page !== null ? String(params.page) : undefined;
+    const limitStr = params.limit !== undefined && params.limit !== null ? String(params.limit) : undefined;
+    const { page, limit, offset } = parsePaginationParams(pageStr, limitStr, 10);
+
+    const conditions: SQL[] = [];
+
+    // 1. Category validation and dynamic JSONB attributes
+    let matchedCategory: (typeof categoryEnum.enumValues)[number] | undefined;
+
+    if (params.category !== undefined && params.category !== null && String(params.category).trim() !== "") {
+        const categoryQuery = String(params.category).trim();
+        matchedCategory = categoryEnum.enumValues.find(
+            (c) => c.toLowerCase() === categoryQuery.toLowerCase()
+        );
+
+        if (!matchedCategory) {
+            throw ApiError.badRequest(`Invalid category: '${categoryQuery}'.`);
+        }
+
+        conditions.push(eq(products.category, matchedCategory));
+
+        // Dynamically build JSONB filters using category configuration
+        if (params.attributes && Object.keys(params.attributes).length > 0) {
+            const jsonbConditions = buildJsonbAttributeFilters(
+                matchedCategory,
+                params.attributes
+            );
+            conditions.push(...jsonbConditions);
+        }
+    }
+
+    // 2. Keyword Search (productName, description)
+    if (params.search !== undefined && params.search !== null && String(params.search).trim() !== "") {
+        const searchKeyword = `%${String(params.search).trim()}%`;
+        const searchCondition = or(
+            ilike(products.productName, searchKeyword),
+            ilike(products.description, searchKeyword)
+        );
+        if (searchCondition) {
+            conditions.push(searchCondition);
+        }
+    }
+
+    // 3. Merchant filter
+    if (params.merchantId !== undefined && params.merchantId !== null && String(params.merchantId).trim() !== "") {
+        const validMerchantId = validateUUID(String(params.merchantId), "Merchant ID");
+        conditions.push(eq(products.merchantId, validMerchantId));
+    }
+
+    // 4. Min Price filter
+    let parsedMinPrice: number | undefined;
+    if (params.minPrice !== undefined && params.minPrice !== null && String(params.minPrice).trim() !== "") {
+        const num = Number(params.minPrice);
+        if (isNaN(num) || num < 0) {
+            throw ApiError.badRequest("minPrice must be a valid non-negative number.");
+        }
+        parsedMinPrice = num;
+        conditions.push(gte(products.price, parsedMinPrice.toFixed(2)));
+    }
+
+    // 5. Max Price filter
+    let parsedMaxPrice: number | undefined;
+    if (params.maxPrice !== undefined && params.maxPrice !== null && String(params.maxPrice).trim() !== "") {
+        const num = Number(params.maxPrice);
+        if (isNaN(num) || num < 0) {
+            throw ApiError.badRequest("maxPrice must be a valid non-negative number.");
+        }
+        parsedMaxPrice = num;
+        conditions.push(lte(products.price, parsedMaxPrice.toFixed(2)));
+    }
+
+    // 6. Price range consistency validation
+    if (parsedMinPrice !== undefined && parsedMaxPrice !== undefined && parsedMinPrice > parsedMaxPrice) {
+        throw ApiError.badRequest(
+            `minPrice (${parsedMinPrice}) cannot be greater than maxPrice (${parsedMaxPrice}).`
+        );
+    }
+
+    // 7. In Stock filter
+    if (params.inStock !== undefined && params.inStock !== null && String(params.inStock).trim() !== "") {
+        const inStockStr = String(params.inStock).trim().toLowerCase();
+        if (inStockStr === "true" || inStockStr === "1") {
+            conditions.push(gt(products.inventoryStock, 0));
+        } else if (inStockStr === "false" || inStockStr === "0") {
+            conditions.push(lte(products.inventoryStock, 0));
+        } else {
+            throw ApiError.badRequest("inStock filter must be 'true' or 'false'.");
+        }
+    }
+
+    // 8. Count matching products
+    const countQuery = db
+        .select({ total: count() })
+        .from(products);
+
+    const [{ total }] = conditions.length > 0
+        ? await countQuery.where(and(...conditions))
+        : await countQuery;
+
+    const totalCount = Number(total);
+
+    // 9. Query paginated products with merchant join
+    const productQuery = db
+        .select({
+            id: products.id,
+            productName: products.productName,
+            description: products.description,
+            category: products.category,
+            price: products.price,
+            currency: products.currency,
+            attributes: products.attributes,
+            inventoryStock: products.inventoryStock,
+            merchantId: products.merchantId,
+            merchantName: merchants.name,
+        })
+        .from(products)
+        .leftJoin(merchants, eq(products.merchantId, merchants.id));
+
+    const productList = conditions.length > 0
+        ? await productQuery.where(and(...conditions)).limit(limit).offset(offset).orderBy(products.productName)
+        : await productQuery.limit(limit).offset(offset).orderBy(products.productName);
+
+    return {
+        products: productList.map((p) => ({
+            id: p.id,
+            productName: p.productName,
+            description: p.description,
+            category: p.category,
+            price: p.price,
+            currency: p.currency,
+            attributes: p.attributes,
+            inventoryStock: p.inventoryStock,
+            merchant: {
+                id: p.merchantId,
+                name: p.merchantName,
+            },
+        })),
+        pagination: {
+            page,
+            limit,
+            total: totalCount,
+            totalPages: totalCount > 0 ? Math.ceil(totalCount / limit) : 0,
+        },
+    };
 }
 
 /**
@@ -167,3 +350,8 @@ export async function compareProducts(
         products: formattedProducts,
     };
 }
+
+export {
+    getAllowedAttributesForCategory,
+    CATEGORY_ATTRIBUTES_CONFIG,
+};
