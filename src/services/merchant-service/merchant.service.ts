@@ -1,8 +1,9 @@
 import { eq, and, gte, lte, gt, count, SQL } from "drizzle-orm";
 import { db } from "@/lib";
-import { merchants, products, categoryEnum } from "@/db/schema";
+import { merchants, products, users, categoryEnum } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
 import { validateUUID, parsePaginationParams } from "@/utils/validators";
+import { createAuthorization, PaymentAuthorizationResponse } from "@/services/payment-authorization-service";
 
 export interface MerchantSummary {
     id: string;
@@ -160,7 +161,7 @@ export async function getMerchantProducts(
 
         if (!matchedCategory) {
             throw ApiError.badRequest(
-                `Invalid category '${categoryQuery}'. Valid categories are: ${categoryEnum.enumValues.join(", ")}`
+                `Invalid category '${categoryQuery}'.`
             );
         }
 
@@ -248,3 +249,53 @@ export async function getMerchantProducts(
         },
     };
 }
+
+export interface RequestMerchantReserveInput {
+    userId: string;
+    amount: number | string;
+    validUntil: string | Date;
+}
+
+/**
+ * Handles user request to merchant for creating a payment reserve.
+ * Validates merchant & user exist, then calls payment-authorization-service to create a pending reserve.
+ * Omits metadata timestamps.
+ */
+export async function requestMerchantReserve(
+    merchantId: string,
+    input: RequestMerchantReserveInput
+): Promise<PaymentAuthorizationResponse> {
+    if (!input || typeof input !== "object") {
+        throw ApiError.badRequest("Request body must be an object with 'userId', 'amount', and 'validUntil'.");
+    }
+
+    const validMerchantId = validateUUID(merchantId, "Merchant ID");
+    const validUserId = validateUUID(input.userId, "User ID");
+
+    // 1. Verify merchant exists
+    const [merchant] = await db
+        .select({ id: merchants.id })
+        .from(merchants)
+        .where(eq(merchants.id, validMerchantId));
+    if (!merchant) {
+        throw ApiError.notFound(`Merchant with ID '${validMerchantId}' was not found.`);
+    }
+
+    // 2. Verify user exists
+    const [user] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, validUserId));
+    if (!user) {
+        throw ApiError.notFound(`User with ID '${validUserId}' was not found.`);
+    }
+
+    // 3. Delegate to payment authorization service
+    return createAuthorization({
+        userId: validUserId,
+        merchantId: validMerchantId,
+        amount: input.amount,
+        validUntil: input.validUntil,
+    });
+}
+
