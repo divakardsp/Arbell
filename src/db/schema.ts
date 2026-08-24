@@ -64,10 +64,10 @@ export const paymentMethodEnum = pgEnum("payment_method", [
 ]);
 
 export const authorizationStatusEnum = pgEnum("authorization_status", [
+    "pending",
     "active",
     "expired",
-    "paused",
-    "deleted",
+    "revoked",
 ]);
 
 export const agentSessionStatusEnum = pgEnum("agent_session_status", [
@@ -235,7 +235,7 @@ export const paymentAuthorizations = pgTable("payment_authorizations", {
         scale: 2,
     }).notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
-    status: authorizationStatusEnum("status").notNull().default("active"),
+    status: authorizationStatusEnum("status").notNull().default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true })
         .defaultNow()
         .notNull(),
