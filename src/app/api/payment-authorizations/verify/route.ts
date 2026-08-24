@@ -1,0 +1,33 @@
+import { NextRequest } from "next/server";
+import {
+    verifyPaymentAuthorization,
+    VerifyPaymentAuthorizationInput,
+} from "@/services/payment-authorization-service";
+import { ApiResponse } from "@/utils/ApiResponse";
+import { handleApiError } from "@/utils/errorHandler";
+import { ApiError } from "@/utils/ApiError";
+
+export async function POST(request: NextRequest) {
+    try {
+        let body: unknown;
+        try {
+            body = await request.json();
+        } catch {
+            throw ApiError.badRequest("Invalid JSON body.");
+        }
+
+        const result = await verifyPaymentAuthorization(
+            body as VerifyPaymentAuthorizationInput
+        );
+
+        return ApiResponse.success(
+            result,
+            result.isAuthorized
+                ? "Payment authorization verified successfully"
+                : "Payment authorization verification failed",
+            200
+        );
+    } catch (error) {
+        return handleApiError(error);
+    }
+}

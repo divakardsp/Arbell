@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db } from "@/lib";
 import { users, merchants, paymentAuthorizations, authorizationStatusEnum } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
@@ -37,6 +37,23 @@ export interface UserAuthorizationsResponse {
     userId: string;
     total: number;
     authorizations: UserAuthorizationItem[];
+}
+
+export interface VerifyPaymentAuthorizationInput {
+    userId: string;
+    merchantId: string;
+    amount?: number | string;
+}
+
+export interface VerifyPaymentAuthorizationResponse {
+    isAuthorized: boolean;
+    reason?: string;
+    authorization: PaymentAuthorizationResponse | null;
+}
+
+export interface DeductAuthorizationAmountInput {
+    authorizationId: string;
+    amount: number | string;
 }
 
 /**
@@ -329,3 +346,235 @@ export async function getUserAuthorizations(
         authorizations,
     };
 }
+
+/**
+ * Verifies if a user has an active, valid payment authorization reserve for a given merchant
+ * with sufficient remaining balance.
+ * Returns positive verification details if valid, or reason if not authorized.
+ * Omits metadata timestamps.
+ */
+export async function verifyPaymentAuthorization(
+    input: VerifyPaymentAuthorizationInput
+): Promise<VerifyPaymentAuthorizationResponse> {
+    if (!input || typeof input !== "object") {
+        throw ApiError.badRequest("Request body must be an object with 'userId' and 'merchantId'.");
+    }
+
+    // 1. Validate UUIDs
+    const validUserId = validateUUID(input.userId, "User ID");
+    const validMerchantId = validateUUID(input.merchantId, "Merchant ID");
+
+    // 2. Validate Amount if provided
+    let amountNum: number | undefined;
+    if (input.amount !== undefined && input.amount !== null && input.amount !== "") {
+        amountNum = Number(input.amount);
+        if (isNaN(amountNum) || amountNum <= 0) {
+            throw ApiError.badRequest("Amount must be a valid positive number.");
+        }
+    }
+
+    // 3. Verify User exists
+    const [user] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, validUserId));
+    if (!user) {
+        throw ApiError.notFound(`User with ID '${validUserId}' was not found.`);
+    }
+
+    // 4. Verify Merchant exists
+    const [merchant] = await db
+        .select({ id: merchants.id })
+        .from(merchants)
+        .where(eq(merchants.id, validMerchantId));
+    if (!merchant) {
+        throw ApiError.notFound(`Merchant with ID '${validMerchantId}' was not found.`);
+    }
+
+    // 5. Query active payment authorizations for this user and merchant
+    const activeAuths = await db
+        .select({
+            id: paymentAuthorizations.id,
+            userId: paymentAuthorizations.userId,
+            merchantId: paymentAuthorizations.merchantId,
+            authorizedAmount: paymentAuthorizations.authorizedAmount,
+            remainingAmount: paymentAuthorizations.remainingAmount,
+            validUntil: paymentAuthorizations.validUntil,
+            status: paymentAuthorizations.status,
+        })
+        .from(paymentAuthorizations)
+        .where(
+            and(
+                eq(paymentAuthorizations.userId, validUserId),
+                eq(paymentAuthorizations.merchantId, validMerchantId),
+                eq(paymentAuthorizations.status, "active")
+            )
+        )
+        .orderBy(desc(paymentAuthorizations.createdAt));
+
+    if (activeAuths.length === 0) {
+        return {
+            isAuthorized: false,
+            reason: "No active payment authorization found for this user and merchant.",
+            authorization: null,
+        };
+    }
+
+    // 6. Find a valid, unexpired authorization with sufficient remaining balance
+    const now = Date.now();
+    let hasExpired = false;
+    let insufficientBalanceAuth: (typeof activeAuths)[0] | null = null;
+
+    for (const auth of activeAuths) {
+        // Expiration check
+        if (auth.validUntil && new Date(auth.validUntil).getTime() <= now) {
+            hasExpired = true;
+            continue;
+        }
+
+        const remaining = Number(auth.remainingAmount);
+
+        // Balance check
+        if (amountNum !== undefined) {
+            if (remaining >= amountNum) {
+                return {
+                    isAuthorized: true,
+                    authorization: {
+                        id: auth.id,
+                        userId: auth.userId,
+                        merchantId: auth.merchantId,
+                        authorizedAmount: auth.authorizedAmount,
+                        remainingAmount: auth.remainingAmount,
+                        validUntil: auth.validUntil ? auth.validUntil.toISOString() : null,
+                        status: auth.status,
+                    },
+                };
+            } else {
+                insufficientBalanceAuth = auth;
+            }
+        } else {
+            // If no specific amount was requested, any active unexpired authorization with remaining > 0 is valid
+            if (remaining > 0) {
+                return {
+                    isAuthorized: true,
+                    authorization: {
+                        id: auth.id,
+                        userId: auth.userId,
+                        merchantId: auth.merchantId,
+                        authorizedAmount: auth.authorizedAmount,
+                        remainingAmount: auth.remainingAmount,
+                        validUntil: auth.validUntil ? auth.validUntil.toISOString() : null,
+                        status: auth.status,
+                    },
+                };
+            } else {
+                insufficientBalanceAuth = auth;
+            }
+        }
+    }
+
+    // If no valid authorization satisfied the requirements
+    if (insufficientBalanceAuth && amountNum !== undefined) {
+        return {
+            isAuthorized: false,
+            reason: `Insufficient reserve balance.`,
+            authorization: null,
+        };
+    }
+
+    if (hasExpired) {
+        return {
+            isAuthorized: false,
+            reason: "Payment authorization has expired.",
+            authorization: null,
+        };
+    }
+
+    return {
+        isAuthorized: false,
+        reason: "No valid payment authorization reserve available with sufficient remaining amount.",
+        authorization: null,
+    };
+}
+
+/**
+ * Deducts an authorized amount from an active payment authorization reserve.
+ * Used during payment execution.
+ * Omits metadata timestamps.
+ */
+export async function deductAuthorizationAmount(
+    input: DeductAuthorizationAmountInput
+): Promise<PaymentAuthorizationResponse> {
+    if (!input || typeof input !== "object") {
+        throw ApiError.badRequest("Request body must be an object with 'authorizationId' and 'amount'.");
+    }
+
+    const validAuthId = validateUUID(input.authorizationId, "Authorization ID");
+    const amountNum = Number(input.amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+        throw ApiError.badRequest("Amount must be a valid positive number.");
+    }
+
+    const [auth] = await db
+        .select({
+            id: paymentAuthorizations.id,
+            userId: paymentAuthorizations.userId,
+            merchantId: paymentAuthorizations.merchantId,
+            authorizedAmount: paymentAuthorizations.authorizedAmount,
+            remainingAmount: paymentAuthorizations.remainingAmount,
+            validUntil: paymentAuthorizations.validUntil,
+            status: paymentAuthorizations.status,
+        })
+        .from(paymentAuthorizations)
+        .where(eq(paymentAuthorizations.id, validAuthId));
+
+    if (!auth) {
+        throw ApiError.notFound(`Payment authorization with ID '${validAuthId}' was not found.`);
+    }
+
+    if (auth.status !== "active") {
+        throw ApiError.badRequest(
+            `Payment authorization is not active. Current status: '${auth.status}'.`
+        );
+    }
+
+    if (auth.validUntil && new Date(auth.validUntil).getTime() <= Date.now()) {
+        throw ApiError.badRequest("Payment authorization has expired.");
+    }
+
+    const currentRemaining = Number(auth.remainingAmount);
+    if (currentRemaining < amountNum) {
+        throw ApiError.badRequest(
+            `Insufficient authorization balance. Available: ${auth.remainingAmount}, Required: ${amountNum.toFixed(2)}.`
+        );
+    }
+
+    const newRemaining = (currentRemaining - amountNum).toFixed(2);
+
+    const [updated] = await db
+        .update(paymentAuthorizations)
+        .set({
+            remainingAmount: newRemaining,
+        })
+        .where(eq(paymentAuthorizations.id, validAuthId))
+        .returning({
+            id: paymentAuthorizations.id,
+            userId: paymentAuthorizations.userId,
+            merchantId: paymentAuthorizations.merchantId,
+            authorizedAmount: paymentAuthorizations.authorizedAmount,
+            remainingAmount: paymentAuthorizations.remainingAmount,
+            validUntil: paymentAuthorizations.validUntil,
+            status: paymentAuthorizations.status,
+        });
+
+    return {
+        id: updated.id,
+        userId: updated.userId,
+        merchantId: updated.merchantId,
+        authorizedAmount: updated.authorizedAmount,
+        remainingAmount: updated.remainingAmount,
+        validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
+        status: updated.status,
+    };
+}
+
