@@ -117,7 +117,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
             productName: products.productName,
             price: products.price,
             merchantId: products.merchantId,
-            inventoryStock: products.inventoryStock,
+            availableStock: products.availableStock,
         })
         .from(products)
         .where(inArray(products.id, uniqueProductIds));
@@ -141,12 +141,12 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
         );
     }
 
-    // 6. Verify inventory stock sufficiency
+    // 6. Verify available stock sufficiency
     for (const product of dbProducts) {
         const requestedQty = productQuantityMap.get(product.id)!;
-        if (product.inventoryStock < requestedQty) {
+        if (product.availableStock < requestedQty) {
             throw ApiError.badRequest(
-                `Insufficient inventory stock for '${product.productName}'. Available: ${product.inventoryStock}, Requested: ${requestedQty}.`
+                `Insufficient available stock for '${product.productName}'. Available: ${product.availableStock}, Requested: ${requestedQty}.`
             );
         }
     }
@@ -197,13 +197,14 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
             quantity: orderItems.quantity,
         });
 
-    // 10. Deduct inventory stock
+    // 10. Update product stock: decrease availableStock and increase reserveStock
     for (const product of dbProducts) {
         const requestedQty = productQuantityMap.get(product.id)!;
         await db
             .update(products)
             .set({
-                inventoryStock: sql`${products.inventoryStock} - ${requestedQty}`,
+                availableStock: sql`${products.availableStock} - ${requestedQty}`,
+                reserveStock: sql`${products.reserveStock} + ${requestedQty}`,
             })
             .where(eq(products.id, product.id));
     }

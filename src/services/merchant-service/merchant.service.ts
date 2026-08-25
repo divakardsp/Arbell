@@ -31,7 +31,10 @@ export interface ProductSummary {
     price: string;
     currency: string;
     attributes: Record<string, string | number | boolean>;
+    availableStock: number;
     inventoryStock: number;
+    reserveStock: number;
+    soldStock: number;
 }
 
 export interface MerchantProductsFilterParams {
@@ -197,13 +200,13 @@ export async function getMerchantProducts(
         );
     }
 
-    // In Stock Filter
+    // In Stock Filter (using availableStock as source of truth)
     if (filters.inStock !== undefined && filters.inStock !== null && String(filters.inStock).trim() !== "") {
         const inStockStr = String(filters.inStock).trim().toLowerCase();
         if (inStockStr === "true" || inStockStr === "1") {
-            conditions.push(gt(products.inventoryStock, 0));
+            conditions.push(gt(products.availableStock, 0));
         } else if (inStockStr === "false" || inStockStr === "0") {
-            conditions.push(lte(products.inventoryStock, 0));
+            conditions.push(lte(products.availableStock, 0));
         } else {
             throw ApiError.badRequest("inStock filter must be 'true' or 'false'.");
         }
@@ -227,7 +230,10 @@ export async function getMerchantProducts(
             price: products.price,
             currency: products.currency,
             attributes: products.attributes,
+            availableStock: products.availableStock,
             inventoryStock: products.inventoryStock,
+            reserveStock: products.reserveStock,
+            soldStock: products.soldStock,
         })
         .from(products)
         .where(and(...conditions))

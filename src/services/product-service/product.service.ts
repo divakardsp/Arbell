@@ -22,7 +22,10 @@ export interface ProductDetail {
     price: string;
     currency: string;
     attributes: Record<string, string | number | boolean>;
+    availableStock: number;
     inventoryStock: number;
+    reserveStock: number;
+    soldStock: number;
     merchant: ProductMerchantSummary;
 }
 
@@ -146,13 +149,13 @@ export async function searchProducts(
         );
     }
 
-    // 7. In Stock filter
+    // 7. In Stock filter (based on availableStock as source of truth)
     if (params.inStock !== undefined && params.inStock !== null && String(params.inStock).trim() !== "") {
         const inStockStr = String(params.inStock).trim().toLowerCase();
         if (inStockStr === "true" || inStockStr === "1") {
-            conditions.push(gt(products.inventoryStock, 0));
+            conditions.push(gt(products.availableStock, 0));
         } else if (inStockStr === "false" || inStockStr === "0") {
-            conditions.push(lte(products.inventoryStock, 0));
+            conditions.push(lte(products.availableStock, 0));
         } else {
             throw ApiError.badRequest("inStock filter must be 'true' or 'false'.");
         }
@@ -179,7 +182,10 @@ export async function searchProducts(
             price: products.price,
             currency: products.currency,
             attributes: products.attributes,
+            availableStock: products.availableStock,
             inventoryStock: products.inventoryStock,
+            reserveStock: products.reserveStock,
+            soldStock: products.soldStock,
             merchantId: products.merchantId,
             merchantName: merchants.name,
         })
@@ -199,7 +205,10 @@ export async function searchProducts(
             price: p.price,
             currency: p.currency,
             attributes: p.attributes,
+            availableStock: p.availableStock,
             inventoryStock: p.inventoryStock,
+            reserveStock: p.reserveStock,
+            soldStock: p.soldStock,
             merchant: {
                 id: p.merchantId,
                 name: p.merchantName,
@@ -230,7 +239,10 @@ export async function getProductById(productId: string): Promise<ProductDetail> 
             price: products.price,
             currency: products.currency,
             attributes: products.attributes,
+            availableStock: products.availableStock,
             inventoryStock: products.inventoryStock,
+            reserveStock: products.reserveStock,
+            soldStock: products.soldStock,
             merchantId: products.merchantId,
             merchantName: merchants.name,
         })
@@ -250,7 +262,10 @@ export async function getProductById(productId: string): Promise<ProductDetail> 
         price: product.price,
         currency: product.currency,
         attributes: product.attributes,
+        availableStock: product.availableStock,
         inventoryStock: product.inventoryStock,
+        reserveStock: product.reserveStock,
+        soldStock: product.soldStock,
         merchant: {
             id: product.merchantId,
             name: product.merchantName,
@@ -311,7 +326,10 @@ export async function compareProducts(
             price: products.price,
             currency: products.currency,
             attributes: products.attributes,
+            availableStock: products.availableStock,
             inventoryStock: products.inventoryStock,
+            reserveStock: products.reserveStock,
+            soldStock: products.soldStock,
             merchantId: products.merchantId,
             merchantName: merchants.name,
         })
@@ -338,7 +356,10 @@ export async function compareProducts(
         price: p.price,
         currency: p.currency,
         attributes: p.attributes,
+        availableStock: p.availableStock,
         inventoryStock: p.inventoryStock,
+        reserveStock: p.reserveStock,
+        soldStock: p.soldStock,
         merchant: {
             id: p.merchantId,
             name: p.merchantName,
