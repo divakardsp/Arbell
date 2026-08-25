@@ -124,25 +124,51 @@ export const merchants = pgTable("merchants", {
 
 export const products = pgTable("products", {
     id: uuid("id").defaultRandom().primaryKey(),
+
     productName: varchar("product_name", { length: 255 }).notNull(),
+
     description: text("description"),
+
     merchantId: uuid("merchant_id")
         .notNull()
         .references(() => merchants.id),
+
     category: categoryEnum("category").notNull(),
+
     price: numeric("price", {
         precision: 12,
         scale: 2,
     }).notNull(),
-    currency: varchar("currency", { length: 3 }).notNull().default("INR"),
+
+    currency: varchar("currency", { length: 3 })
+        .notNull()
+        .default("INR"),
+
     attributes: jsonb("attributes")
         .$type<Record<string, string | number | boolean>>()
         .notNull()
         .default({}),
-    inventoryStock: integer("inventory_stock").notNull().default(0),
+
+    inventoryStock: integer("inventory_stock")
+        .notNull()
+        .default(0),
+
+    availableStock: integer("available_stock")
+        .notNull()
+        .default(0),
+
+    reserveStock: integer("reserve_stock")
+        .notNull()
+        .default(0),
+
+    soldStock: integer("sold_stock")
+        .notNull()
+        .default(0),
+
     createdAt: timestamp("created_at", { withTimezone: true })
         .defaultNow()
         .notNull(),
+
     updatedAt: timestamp("updated_at", { withTimezone: true })
         .defaultNow()
         .$onUpdate(() => new Date())

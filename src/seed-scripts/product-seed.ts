@@ -1299,6 +1299,7 @@ function createProduct(
     productIndex: number,
 ) {
     const price = randomDecimal(template.minPrice, template.maxPrice);
+    const stockQty = randomNumber(0, 150);
 
     return {
         productName: `${template.name} - ${merchantName}`,
@@ -1317,7 +1318,10 @@ function createProduct(
                 9999,
             )}`,
         },
-        inventoryStock: randomNumber(0, 150),
+        inventoryStock: stockQty,
+        availableStock: stockQty,
+        reserveStock: 0,
+        soldStock: 0,
     };
 }
 
