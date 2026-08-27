@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import { db } from "../lib/index";
+import { db } from "../index";
 import { merchants } from "../db/schema";
 
 const merchantData = [
@@ -225,8 +225,8 @@ async function seedMerchants() {
 
 seedMerchants()
     .then((data) => {
-        console.log(data);
-        console.log("Successfully Seed the dummy data");
+        console.log(data)
+        console.log("Successfully Seed the dummy data")
     })
     .catch((error) => {
         console.error("❌ Error seeding merchants:", error);

@@ -192,7 +192,8 @@ export async function createPayment(
         throw ApiError.internal(`Failed to create Razorpay order: ${errorMessage}`);
     }
 
-    console.log(razorpayOrder)
+    console.log("razorpayOrder", razorpayOrder)
+    
 
     // 10. Insert order record in database with status 'pending' and razorpayOrderId
     const [newOrder] = await db

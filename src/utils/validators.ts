@@ -19,7 +19,7 @@ export function validateUUID(id: string, fieldName = "ID"): string {
     const trimmedId = id.trim();
     if (!UUID_REGEX.test(trimmedId)) {
         throw ApiError.badRequest(
-            `Invalid ${fieldName} format: '${id}'. Expected a valid UUID (e.g. 123e4567-e89b-12d3-a456-426614174000).`
+            `Invalid ${fieldName} format: '${id}'.`
         );
     }
 
@@ -37,8 +37,8 @@ export interface PaginationParams {
  * Defaults: page = 1, limit = 10. Max limit: 100.
  */
 export function parsePaginationParams(
-    rawPage?: string | null,
-    rawLimit?: string | null,
+    rawPage?: string | undefined,
+    rawLimit?: string | undefined,
     defaultLimit = 10,
     maxLimit = 100
 ): PaginationParams {
