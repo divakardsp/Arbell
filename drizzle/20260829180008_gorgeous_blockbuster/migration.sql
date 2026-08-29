@@ -1,0 +1,2 @@
+ALTER TABLE "payment_authorizations" ADD COLUMN "reserve_amount" numeric(12,2) DEFAULT '0.00' NOT NULL;--> statement-breakpoint
+ALTER TABLE "payment_authorizations" ADD COLUMN "spent_amount" numeric(12,2) DEFAULT '0.00' NOT NULL;

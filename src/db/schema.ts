@@ -326,7 +326,7 @@ export const preDebitPayments = pgTable(
         currency: varchar("currency", { length: 3 })
             .notNull()
             .default("INR"),
-        paymentAfter: bigint("payment_after",{
+        paymentAfter: bigint("payment_after", {
             mode: "number"
         }).notNull(),
         status: preDebitStatusEnum("status")
@@ -367,6 +367,18 @@ export const paymentAuthorizations = pgTable("payment_authorizations", {
         precision: 12,
         scale: 2,
     }).notNull(),
+    reserveAmount: numeric("reserve_amount", {
+        precision: 12,
+        scale: 2,
+    })
+        .notNull()
+        .default("0.00"),
+    spentAmount: numeric("spent_amount", {
+        precision: 12,
+        scale: 2,
+    })
+        .notNull()
+        .default("0.00"),
     validUntil: timestamp("valid_until", { withTimezone: true }),
     status: authorizationStatusEnum("status").notNull().default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true })
