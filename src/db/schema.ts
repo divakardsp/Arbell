@@ -9,6 +9,7 @@ import {
     integer,
     pgEnum,
     index,
+    bigint
 } from "drizzle-orm/pg-core";
 
 export const categoryEnum = pgEnum("category", [
@@ -325,7 +326,9 @@ export const preDebitPayments = pgTable(
         currency: varchar("currency", { length: 3 })
             .notNull()
             .default("INR"),
-        paymentAfter: timestamp("payment_after", { withTimezone: true }).notNull(),
+        paymentAfter: bigint("payment_after",{
+            mode: "number"
+        }).notNull(),
         status: preDebitStatusEnum("status")
             .notNull()
             .default("waiting"),
