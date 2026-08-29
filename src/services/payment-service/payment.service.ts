@@ -19,7 +19,9 @@ import { encryptToken, decryptToken } from "@/utils/crypto";
 import { parseRazorpayError } from "./razorpay-error.util";
 import {
     getUserAuthorizations,
-    deductAuthorizationAmount,
+    holdAuthorizationReserve,
+    releaseAuthorizationReserve,
+    captureAuthorizationReserve,
 } from "@/services/payment-authorization-service";
 import {
     InitiateSbmdPaymentInput,
@@ -369,6 +371,12 @@ export async function processSbmdPayment(
             })
             .returning();
 
+        // Hold authorization reserve for Scenario A
+        await holdAuthorizationReserve({
+            authorizationId: validReserve.id,
+            amount: calculatedTotalStr,
+        });
+
         return {
             status: "mandate_required",
             message: "Razorpay SBMD mandate authorization required. Complete UPI setup via Checkout.",
@@ -483,6 +491,12 @@ export async function processSbmdPayment(
         })
         .returning();
 
+    // Update payment authorization table: deduct available amount and increase reserve amount by order amount
+    await holdAuthorizationReserve({
+        authorizationId: validReserve.id,
+        amount: calculatedTotalStr,
+    });
+
     return {
         status: "debit_scheduled",
         message: "Razorpay debit order created and pre-debit payment scheduled.",
@@ -498,7 +512,7 @@ export async function processSbmdPayment(
 
 /**
  * Confirms client-side SBMD mandate authorization, verifies signature,
- * fetches & encrypts token, records token in DB, and deducts reserve if initial payment was captured.
+ * fetches & encrypts token, records token in DB, and captures or releases authorization reserve.
  */
 export async function confirmSbmdMandate(
     input: ConfirmSbmdMandateInput
@@ -523,120 +537,198 @@ export async function confirmSbmdMandate(
     const validAuthId = validateUUID(authorizationId, "Authorization ID");
 
     const [dBpayment] = await db
-        .select({ razorpayOrderId: payments.razorpayOrderId })
+        .select()
         .from(payments)
-        .where(eq(payments.id, paymentId))
+        .where(eq(payments.id, validPaymentId));
 
+    if (!dBpayment) {
+        throw ApiError.notFound("Payment record not found.");
+    }
 
-    if (!dBpayment || dBpayment.razorpayOrderId !== razorpayOrderId) {
+    if (dBpayment.razorpayOrderId !== razorpayOrderId) {
         throw ApiError.badRequest("Invalid Razorpay order ID.");
     }
 
-
-    // 1. Verify Razorpay Signature
-    const { isValid } = verifyPaymentSignature({
-        razorpayOrderId: dBpayment.razorpayOrderId,
-        razorpayPaymentId,
-        razorpaySignature,
-    });
-
-    if (!isValid) {
-        throw ApiError.badRequest("Invalid Razorpay payment signature verification failed.");
-    }
-
-    // 2. Fetch Payment details from Razorpay to retrieve token_id
-    const razorpay = getRazorpayInstance();
-    let paymentDetails: any;
-    try {
-        paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
-    } catch (error: unknown) {
-        const parsed = parseRazorpayError(error);
-        throw ApiError.internal(`Failed to fetch Razorpay payment details: ${parsed.description}`);
-    }
-
-    const tokenId = paymentDetails.token_id;
-    if (!tokenId || typeof tokenId !== "string") {
-        throw ApiError.badRequest("No token_id returned by Razorpay for this authorization payment.");
-    }
-
-    // 3. Encrypt Token before saving in DB
-    const encryptedToken = encryptToken(tokenId);
-
-    // 4. Resolve Razorpay Customer
-    const [dbCustomer] = await db
+    const [dBorder] = await db
         .select()
-        .from(razorpayCustomers)
-        .where(eq(razorpayCustomers.userId, validUserId));
+        .from(orders)
+        .where(eq(orders.id, validOrderId));
 
-    if (!dbCustomer) {
-        throw ApiError.notFound("Razorpay customer mapping not found for user.");
+    if (!dBorder) {
+        throw ApiError.notFound("Order record not found.");
     }
 
-    // 5. Store Encrypted Token in razorpay_tokens
-    const [newToken] = await db
-        .insert(razorpayTokens)
-        .values({
-            razorpayCustomerId: dbCustomer.id,
-            razorpayTokenId: encryptedToken,
-            status: "active",
-        })
-        .returning();
+    // Check if order or payment has already failed or been cancelled
+    if (
+        dBpayment.status === "failed" ||
+        dBorder.status === "failed" ||
+        dBorder.status === "cancelled"
+    ) {
+        throw ApiError.badRequest(
+            "This order has been cancelled due to failed payment verification. Kindly place your order again."
+        );
+    }
 
-    // 6. Update Payment Record
-    const isCaptured = paymentDetails.status === "captured";
-    const paymentStatus = isCaptured ? "captured" : "authorized";
+    // Check if payment is already confirmed
+    if (dBpayment.status === "captured" || dBorder.status === "confirmed") {
+        throw ApiError.badRequest("This payment has already been verified and confirmed.");
+    }
 
-    const [updatedPayment] = await db
-        .update(payments)
-        .set({
-            razorpayPaymentId,
-            razorpayTokenId: newToken.id,
-            status: paymentStatus,
-        })
-        .where(eq(payments.id, validPaymentId))
-        .returning();
-
-    let remainingAuthAmount: string | undefined;
-
-    // 7. If payment was captured directly on checkout, update order and deduct reserve
-    if (isCaptured) {
-        await db
-            .update(orders)
-            .set({ status: "confirmed" })
-            .where(eq(orders.id, validOrderId));
-
-        // Move stock from reserveStock to soldStock
-        const orderItemRows = await db
-            .select()
-            .from(orderItems)
-            .where(eq(orderItems.orderId, validOrderId));
-
-        for (const item of orderItemRows) {
+    let failureHandled = false;
+    // Helper to release stock, fail payment/order, and release held authorization reserve
+    const handleFailure = async () => {
+        if (failureHandled) return;
+        failureHandled = true;
+        try {
             await db
-                .update(products)
-                .set({
-                    reserveStock: sql`${products.reserveStock} - ${item.quantity}`,
-                    soldStock: sql`${products.soldStock} + ${item.quantity}`,
-                })
-                .where(eq(products.id, item.productId));
+                .update(payments)
+                .set({ status: "failed" })
+                .where(eq(payments.id, validPaymentId));
+
+            await db
+                .update(orders)
+                .set({ status: "failed" })
+                .where(eq(orders.id, validOrderId));
+
+            const orderItemRows = await db
+                .select()
+                .from(orderItems)
+                .where(eq(orderItems.orderId, validOrderId));
+
+            for (const item of orderItemRows) {
+                await db
+                    .update(products)
+                    .set({
+                        reserveStock: sql`GREATEST(0, ${products.reserveStock} - ${item.quantity})`,
+                        availableStock: sql`${products.availableStock} + ${item.quantity}`,
+                    })
+                    .where(eq(products.id, item.productId));
+            }
+
+            await releaseAuthorizationReserve({
+                authorizationId: validAuthId,
+                amount: dBpayment.amount,
+            });
+        } catch (cleanupErr) {
+            console.error("Error during failure cleanup:", cleanupErr);
+        }
+    };
+
+    try {
+        // 1. Verify Razorpay Signature
+        const { isValid } = verifyPaymentSignature({
+            razorpayOrderId: dBpayment.razorpayOrderId,
+            razorpayPaymentId,
+            razorpaySignature,
+        });
+
+        if (!isValid) {
+            throw ApiError.badRequest("Invalid Razorpay payment signature verification failed.");
         }
 
-        // Deduct from Arbell authorization reserve ONLY after confirmed success
-        const deductionResult = await deductAuthorizationAmount({
-            authorizationId: validAuthId,
-            amount: updatedPayment.amount,
-        });
-        remainingAuthAmount = deductionResult.remainingAmount;
-    }
+        // 2. Fetch Payment details from Razorpay to retrieve token_id
+        const razorpay = getRazorpayInstance();
+        let paymentDetails: any;
+        try {
+            paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
+        } catch (error: unknown) {
+            const parsed = parseRazorpayError(error);
+            throw ApiError.internal(`Failed to fetch Razorpay payment details: ${parsed.description}`);
+        }
 
-    return {
-        success: true,
-        orderId: validOrderId,
-        paymentId: validPaymentId,
-        tokenId: newToken.id,
-        razorpayPaymentId,
-        authorizationRemainingAmount: remainingAuthAmount,
-    };
+        if (paymentDetails.status === "failed") {
+            throw ApiError.badRequest(
+                `Payment failed on Razorpay: ${paymentDetails.error_description || "Unknown error"}`
+            );
+        }
+
+        const tokenId = paymentDetails.token_id;
+        if (!tokenId || typeof tokenId !== "string"){
+            throw ApiError.badRequest("No token_id returned by Razorpay for this authorization payment.");
+        }
+
+        // 3. Encrypt Token before saving in DB
+        const encryptedToken = encryptToken(tokenId);
+
+        // 4. Resolve Razorpay Customer
+        const [dbCustomer] = await db
+            .select()
+            .from(razorpayCustomers)
+            .where(eq(razorpayCustomers.userId, validUserId));
+
+        if (!dbCustomer){
+            throw ApiError.notFound("Razorpay customer mapping not found for user.");
+        }
+
+        // 5. Store Encrypted Token in razorpay_tokens
+        const [newToken] = await db
+            .insert(razorpayTokens)
+            .values({
+                razorpayCustomerId: dbCustomer.id,
+                razorpayTokenId: encryptedToken,
+                status: "active",
+            })
+            .returning();
+
+        // 6. Update Payment Record
+        const isCaptured = paymentDetails.status === "captured";
+        const paymentStatus = isCaptured ? "captured" : "authorized";
+
+        const [updatedPayment] = await db
+            .update(payments)
+            .set({
+                razorpayPaymentId,
+                razorpayTokenId: newToken.id,
+                status: paymentStatus,
+            })
+            .where(eq(payments.id, validPaymentId))
+            .returning();
+
+        let remainingAuthAmount: string | undefined;
+
+        // 7. If payment was captured directly on checkout, update order and capture reserve into spent
+        if (isCaptured) {
+            await db
+                .update(orders)
+                .set({ status: "confirmed" })
+                .where(eq(orders.id, validOrderId));
+
+            // Move stock from reserveStock to soldStock
+            const orderItemRows = await db
+                .select()
+                .from(orderItems)
+                .where(eq(orderItems.orderId, validOrderId));
+
+            for (const item of orderItemRows) {
+                await db
+                    .update(products)
+                    .set({
+                        reserveStock: sql`${products.reserveStock} - ${item.quantity}`,
+                        soldStock: sql`${products.soldStock} + ${item.quantity}`,
+                    })
+                    .where(eq(products.id, item.productId));
+            }
+
+            // Capture authorization reserve (moves from reserveAmount to spentAmount)
+            const captureResult = await captureAuthorizationReserve({
+                authorizationId: validAuthId,
+                amount: updatedPayment.amount,
+            });
+            remainingAuthAmount = captureResult.remainingAmount;
+        }
+
+        return {
+            success: true,
+            orderId: validOrderId,
+            paymentId: validPaymentId,
+            tokenId: newToken.id,
+            razorpayPaymentId,
+            authorizationRemainingAmount: remainingAuthAmount,
+        };
+    } catch (error) {
+        await handleFailure();
+        throw error;
+    }
 }
 
 
