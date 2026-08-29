@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib";
 import { users, merchants, paymentAuthorizations, authorizationStatusEnum } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
@@ -17,6 +17,8 @@ export interface PaymentAuthorizationResponse {
     merchantId: string;
     authorizedAmount: string;
     remainingAmount: string;
+    reserveAmount: string;
+    spentAmount: string;
     validUntil: string | null;
     status: string;
 }
@@ -29,6 +31,8 @@ export interface UserAuthorizationItem {
     };
     authorizedAmount: string;
     remainingAmount: string;
+    reserveAmount: string;
+    spentAmount: string;
     validUntil: string | null;
     status: string;
 }
@@ -52,6 +56,21 @@ export interface VerifyPaymentAuthorizationResponse {
 }
 
 export interface DeductAuthorizationAmountInput {
+    authorizationId: string;
+    amount: number | string;
+}
+
+export interface HoldAuthorizationReserveInput {
+    authorizationId: string;
+    amount: number | string;
+}
+
+export interface ReleaseAuthorizationReserveInput {
+    authorizationId: string;
+    amount: number | string;
+}
+
+export interface CaptureAuthorizationReserveInput {
     authorizationId: string;
     amount: number | string;
 }
@@ -108,16 +127,20 @@ export async function createAuthorization(
         throw ApiError.notFound(`Merchant with ID '${validMerchantId}' was not found.`);
     }
 
+    const formattedAmount = amountNum.toFixed(2);
+
     // 6. Insert pending authorization row
     const [inserted] = await db
         .insert(paymentAuthorizations)
         .values({
             userId: validUserId,
             merchantId: validMerchantId,
-            authorizedAmount: amountNum.toFixed(2),
-            remainingAmount: amountNum.toFixed(2),
+            authorizedAmount: formattedAmount,
+            remainingAmount: formattedAmount,
+            reserveAmount: "0.00",
+            spentAmount: "0.00",
             validUntil: validUntilDate,
-            status: "pending",
+            status: "active",
         })
         .returning({
             id: paymentAuthorizations.id,
@@ -125,6 +148,8 @@ export async function createAuthorization(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         });
@@ -135,6 +160,8 @@ export async function createAuthorization(
         merchantId: inserted.merchantId,
         authorizedAmount: inserted.authorizedAmount,
         remainingAmount: inserted.remainingAmount,
+        reserveAmount: inserted.reserveAmount,
+        spentAmount: inserted.spentAmount,
         validUntil: inserted.validUntil ? inserted.validUntil.toISOString() : null,
         status: inserted.status,
     };
@@ -159,6 +186,8 @@ export async function approveAuthorization(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         })
@@ -197,6 +226,8 @@ export async function approveAuthorization(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         });
@@ -207,6 +238,8 @@ export async function approveAuthorization(
         merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
+        reserveAmount: updated.reserveAmount,
+        spentAmount: updated.spentAmount,
         validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
         status: updated.status,
     };
@@ -231,6 +264,8 @@ export async function revokeAuthorization(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         })
@@ -262,6 +297,8 @@ export async function revokeAuthorization(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         });
@@ -272,6 +309,8 @@ export async function revokeAuthorization(
         merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
+        reserveAmount: updated.reserveAmount,
+        spentAmount: updated.spentAmount,
         validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
         status: updated.status,
     };
@@ -321,6 +360,8 @@ export async function getUserAuthorizations(
             merchantName: merchants.name,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         })
@@ -336,6 +377,8 @@ export async function getUserAuthorizations(
         },
         authorizedAmount: r.authorizedAmount,
         remainingAmount: r.remainingAmount,
+        reserveAmount: r.reserveAmount ?? "0.00",
+        spentAmount: r.spentAmount ?? "0.00",
         validUntil: r.validUntil ? r.validUntil.toISOString() : null,
         status: r.status,
     }));
@@ -349,7 +392,7 @@ export async function getUserAuthorizations(
 
 /**
  * Verifies if a user has an active, valid payment authorization reserve for a given merchant
- * with sufficient remaining balance.
+ * with sufficient remaining balance (remainingAmount is the available spend source of truth).
  * Returns positive verification details if valid, or reason if not authorized.
  * Omits metadata timestamps.
  */
@@ -399,6 +442,8 @@ export async function verifyPaymentAuthorization(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         })
@@ -445,6 +490,8 @@ export async function verifyPaymentAuthorization(
                         merchantId: auth.merchantId,
                         authorizedAmount: auth.authorizedAmount,
                         remainingAmount: auth.remainingAmount,
+                        reserveAmount: auth.reserveAmount ?? "0.00",
+                        spentAmount: auth.spentAmount ?? "0.00",
                         validUntil: auth.validUntil ? auth.validUntil.toISOString() : null,
                         status: auth.status,
                     },
@@ -463,6 +510,8 @@ export async function verifyPaymentAuthorization(
                         merchantId: auth.merchantId,
                         authorizedAmount: auth.authorizedAmount,
                         remainingAmount: auth.remainingAmount,
+                        reserveAmount: auth.reserveAmount ?? "0.00",
+                        spentAmount: auth.spentAmount ?? "0.00",
                         validUntil: auth.validUntil ? auth.validUntil.toISOString() : null,
                         status: auth.status,
                     },
@@ -498,8 +547,147 @@ export async function verifyPaymentAuthorization(
 }
 
 /**
- * Deducts an authorized amount from an active payment authorization reserve.
- * Used during payment execution.
+ * Holds an authorization amount when scheduling a pre-debit:
+ * Atomically decrements remainingAmount (available) and increments reserveAmount.
+ */
+export async function holdAuthorizationReserve(
+    input: HoldAuthorizationReserveInput
+): Promise<PaymentAuthorizationResponse> {
+    const validAuthId = validateUUID(input.authorizationId, "Authorization ID");
+    const amountNum = Number(input.amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+        throw ApiError.badRequest("Amount must be a valid positive number.");
+    }
+
+    const [auth] = await db
+        .select()
+        .from(paymentAuthorizations)
+        .where(eq(paymentAuthorizations.id, validAuthId));
+
+    if (!auth) {
+        throw ApiError.notFound(`Payment authorization with ID '${validAuthId}' was not found.`);
+    }
+
+    if (auth.status !== "active") {
+        throw ApiError.badRequest(`Payment authorization is not active. Current status: '${auth.status}'.`);
+    }
+
+    const remainingNum = Number(auth.remainingAmount);
+    if (remainingNum < amountNum) {
+        throw ApiError.badRequest(
+            `Insufficient available authorization balance. Available: ${remainingNum.toFixed(2)}, Required: ${amountNum.toFixed(2)}.`
+        );
+    }
+
+    const amountStr = amountNum.toFixed(2);
+
+    const [updated] = await db
+        .update(paymentAuthorizations)
+        .set({
+            remainingAmount: sql`${paymentAuthorizations.remainingAmount} - ${amountStr}::numeric`,
+            reserveAmount: sql`${paymentAuthorizations.reserveAmount} + ${amountStr}::numeric`,
+        })
+        .where(eq(paymentAuthorizations.id, validAuthId))
+        .returning();
+
+    return {
+        id: updated.id,
+        userId: updated.userId,
+        merchantId: updated.merchantId,
+        authorizedAmount: updated.authorizedAmount,
+        remainingAmount: updated.remainingAmount,
+        reserveAmount: updated.reserveAmount,
+        spentAmount: updated.spentAmount,
+        validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
+        status: updated.status,
+    };
+}
+
+/**
+ * Releases a held reserve amount back to available remainingAmount when a pre-debit fails or is cancelled:
+ * Atomically decrements reserveAmount and increments remainingAmount.
+ */
+export async function releaseAuthorizationReserve(
+    input: ReleaseAuthorizationReserveInput
+): Promise<PaymentAuthorizationResponse> {
+    const validAuthId = validateUUID(input.authorizationId, "Authorization ID");
+    const amountNum = Number(input.amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+        throw ApiError.badRequest("Amount must be a valid positive number.");
+    }
+
+    const amountStr = amountNum.toFixed(2);
+
+    const [updated] = await db
+        .update(paymentAuthorizations)
+        .set({
+            remainingAmount: sql`${paymentAuthorizations.remainingAmount} + ${amountStr}::numeric`,
+            reserveAmount: sql`GREATEST(0, ${paymentAuthorizations.reserveAmount} - ${amountStr}::numeric)`,
+        })
+        .where(eq(paymentAuthorizations.id, validAuthId))
+        .returning();
+
+    if (!updated) {
+        throw ApiError.notFound(`Payment authorization with ID '${validAuthId}' was not found.`);
+    }
+
+    return {
+        id: updated.id,
+        userId: updated.userId,
+        merchantId: updated.merchantId,
+        authorizedAmount: updated.authorizedAmount,
+        remainingAmount: updated.remainingAmount,
+        reserveAmount: updated.reserveAmount,
+        spentAmount: updated.spentAmount,
+        validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
+        status: updated.status,
+    };
+}
+
+/**
+ * Captures a held reserve amount when a pre-debit payment succeeds:
+ * Atomically decrements reserveAmount and increments spentAmount.
+ */
+export async function captureAuthorizationReserve(
+    input: CaptureAuthorizationReserveInput
+): Promise<PaymentAuthorizationResponse> {
+    const validAuthId = validateUUID(input.authorizationId, "Authorization ID");
+    const amountNum = Number(input.amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+        throw ApiError.badRequest("Amount must be a valid positive number.");
+    }
+
+    const amountStr = amountNum.toFixed(2);
+
+    const [updated] = await db
+        .update(paymentAuthorizations)
+        .set({
+            reserveAmount: sql`GREATEST(0, ${paymentAuthorizations.reserveAmount} - ${amountStr}::numeric)`,
+            spentAmount: sql`${paymentAuthorizations.spentAmount} + ${amountStr}::numeric`,
+        })
+        .where(eq(paymentAuthorizations.id, validAuthId))
+        .returning();
+
+    if (!updated) {
+        throw ApiError.notFound(`Payment authorization with ID '${validAuthId}' was not found.`);
+    }
+
+    return {
+        id: updated.id,
+        userId: updated.userId,
+        merchantId: updated.merchantId,
+        authorizedAmount: updated.authorizedAmount,
+        remainingAmount: updated.remainingAmount,
+        reserveAmount: updated.reserveAmount,
+        spentAmount: updated.spentAmount,
+        validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
+        status: updated.status,
+    };
+}
+
+/**
+ * Deducts an authorized amount directly from an active payment authorization reserve.
+ * Used during direct payment capture / mandate confirmation.
  * Omits metadata timestamps.
  */
 export async function deductAuthorizationAmount(
@@ -522,6 +710,8 @@ export async function deductAuthorizationAmount(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         })
@@ -545,16 +735,17 @@ export async function deductAuthorizationAmount(
     const currentRemaining = Number(auth.remainingAmount);
     if (currentRemaining < amountNum) {
         throw ApiError.badRequest(
-            `Insufficient authorization balance. Available: ${auth.remainingAmount}, Required: ${amountNum.toFixed(2)}.`
+            `Insufficient authorization balance. Available: ${currentRemaining.toFixed(2)}, Required: ${amountNum.toFixed(2)}.`
         );
     }
 
-    const newRemaining = (currentRemaining - amountNum).toFixed(2);
+    const amountStr = amountNum.toFixed(2);
 
     const [updated] = await db
         .update(paymentAuthorizations)
         .set({
-            remainingAmount: newRemaining,
+            remainingAmount: sql`${paymentAuthorizations.remainingAmount} - ${amountStr}::numeric`,
+            spentAmount: sql`${paymentAuthorizations.spentAmount} + ${amountStr}::numeric`,
         })
         .where(eq(paymentAuthorizations.id, validAuthId))
         .returning({
@@ -563,6 +754,8 @@ export async function deductAuthorizationAmount(
             merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
+            reserveAmount: paymentAuthorizations.reserveAmount,
+            spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
             status: paymentAuthorizations.status,
         });
@@ -573,8 +766,9 @@ export async function deductAuthorizationAmount(
         merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
+        reserveAmount: updated.reserveAmount,
+        spentAmount: updated.spentAmount,
         validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
         status: updated.status,
     };
 }
-
