@@ -91,13 +91,18 @@ export async function createAuthorization(
     const validUserId = validateUUID(input.userId, "User ID");
     const validMerchantId = validateUUID(input.merchantId, "Merchant ID");
 
-    // 2. Validate Amount
+    // 2. Validate Amount (Min: ₹500, Max: ₹15,000 INR)
     const amountNum = Number(input.amount);
     if (isNaN(amountNum) || amountNum <= 0) {
         throw ApiError.badRequest("Amount must be a valid positive number.");
     }
+    if (amountNum < 500 || amountNum > 15000) {
+        throw ApiError.badRequest(
+            `Authorization amount must be between ₹500 and ₹15,000 INR. Received: ₹${amountNum.toFixed(2)}.`
+        );
+    }
 
-    // 3. Validate validUntil
+    // 3. Validate validUntil (Min: 5 days, Max: 30 days from now)
     if (!input.validUntil) {
         throw ApiError.badRequest("validUntil date is required.");
     }
@@ -105,8 +110,16 @@ export async function createAuthorization(
     if (isNaN(validUntilDate.getTime())) {
         throw ApiError.badRequest("validUntil must be a valid ISO date timestamp.");
     }
-    if (validUntilDate.getTime() <= Date.now()) {
-        throw ApiError.badRequest("validUntil must be a timestamp in the future.");
+
+    const now = Date.now();
+    const minValidUntilMs = now + 5 * 24 * 60 * 60 * 1000; // 5 days from now
+    const maxValidUntilMs = now + 30 * 24 * 60 * 60 * 1000; // 30 days from now
+
+    if (validUntilDate.getTime() < minValidUntilMs) {
+        throw ApiError.badRequest("validUntil must be at least 5 days from now.");
+    }
+    if (validUntilDate.getTime() > maxValidUntilMs) {
+        throw ApiError.badRequest("validUntil cannot exceed 30 days from now.");
     }
 
     // 4. Verify User exists
