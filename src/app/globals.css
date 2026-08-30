@@ -6,30 +6,28 @@
    ========================================================= */
 
 @theme {
-
-    /* Layout */
     --color-sidebar: var(--sidebar);
     --color-main: var(--main);
     --color-surface: var(--surface);
 
-    /* Typography */
     --color-foreground: var(--foreground);
     --color-muted: var(--muted);
 
-    /* UI */
     --color-border: var(--border);
     --color-accent: var(--accent);
     --color-cta: var(--cta);
 
-    /* Semantic */
+    --color-brand: var(--brand);
+    --color-brand-cream: var(--brand-cream);
+
+    --color-input: var(--input);
+    --color-hover: var(--hover);
+    --color-active: var(--active);
+
     --color-success: var(--success);
     --color-warning: var(--warning);
     --color-error: var(--error);
     --color-info: var(--info);
-
-    /* Brand */
-    --color-brand: var(--brand);
-    --color-brand-cream: var(--brand-cream);
 }
 
 
