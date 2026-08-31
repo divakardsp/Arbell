@@ -502,7 +502,7 @@ export default function DesignSystemPage() {
                         <div className="border-b border-border p-5">
                             <div className="flex items-center">
                                 <img
-                                    src="/Arbell-Light.png"
+                                    src="/Arbell-Dark.png"
                                     alt="Arbell"
                                     className="h-10 w-auto object-contain"
                                 />
