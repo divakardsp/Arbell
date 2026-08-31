@@ -18,8 +18,13 @@ import {
 } from "@/components/ui/sidebar";
 import { Package, FileText, MessageSquare } from "lucide-react";
 
+export type ActiveView = "chat" | "orders" | "mandates";
+
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
+    activeView?: ActiveView;
+    onSelectView?: (view: ActiveView) => void;
     onSelectChat?: (title: string) => void;
+    onNewChat?: () => void;
 }
 
 const mockChats = [
@@ -30,7 +35,13 @@ const mockChats = [
     "Gaming laptop",
 ];
 
-export function AppSidebar({ onSelectChat, ...props }: AppSidebarProps) {
+export function AppSidebar({
+    activeView = "chat",
+    onSelectView,
+    onSelectChat,
+    onNewChat,
+    ...props
+}: AppSidebarProps) {
     const { resolvedTheme } = useTheme();
     const [mounted, setMounted] = useState(false);
 
@@ -46,7 +57,13 @@ export function AppSidebar({ onSelectChat, ...props }: AppSidebarProps) {
         <Sidebar className="border-r border-border bg-sidebar" {...props}>
             {/* Top Logo */}
             <SidebarHeader className="px-4 py-4">
-                <div className="flex h-9 items-center">
+                <div
+                    onClick={() => {
+                        onSelectView?.("chat");
+                        onNewChat?.();
+                    }}
+                    className="flex h-9 items-center cursor-pointer"
+                >
                     {mounted ? (
                         <Image
                             src={logoSrc}
@@ -71,18 +88,30 @@ export function AppSidebar({ onSelectChat, ...props }: AppSidebarProps) {
                         <SidebarMenu>
                             <SidebarMenuItem>
                                 <SidebarMenuButton
-                                    className="gap-3 rounded-lg px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-hover hover:text-foreground"
+                                    isActive={activeView === "orders"}
+                                    onClick={() => onSelectView?.("orders")}
+                                    className={`gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                                        activeView === "orders"
+                                            ? "bg-active text-accent font-semibold"
+                                            : "text-foreground hover:bg-hover hover:text-foreground"
+                                    }`}
                                 >
-                                    <Package className="size-4 text-muted" />
+                                    <Package className={`size-4 ${activeView === "orders" ? "text-accent" : "text-muted"}`} />
                                     <span>Orders</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
 
                             <SidebarMenuItem>
                                 <SidebarMenuButton
-                                    className="gap-3 rounded-lg px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-hover hover:text-foreground"
+                                    isActive={activeView === "mandates"}
+                                    onClick={() => onSelectView?.("mandates")}
+                                    className={`gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                                        activeView === "mandates"
+                                            ? "bg-active text-accent font-semibold"
+                                            : "text-foreground hover:bg-hover hover:text-foreground"
+                                    }`}
                                 >
-                                    <FileText className="size-4 text-muted" />
+                                    <FileText className={`size-4 ${activeView === "mandates" ? "text-accent" : "text-muted"}`} />
                                     <span>Your Mandates</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
@@ -100,7 +129,10 @@ export function AppSidebar({ onSelectChat, ...props }: AppSidebarProps) {
                             {mockChats.map((chatTitle, index) => (
                                 <SidebarMenuItem key={index}>
                                     <SidebarMenuButton
-                                        onClick={() => onSelectChat?.(chatTitle)}
+                                        onClick={() => {
+                                            onSelectView?.("chat");
+                                            onSelectChat?.(chatTitle);
+                                        }}
                                         className="group/chat-item flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/90 transition-colors hover:bg-hover hover:text-foreground"
                                     >
                                         <MessageSquare className="size-3.5 shrink-0 text-muted group-hover/chat-item:text-foreground" />
