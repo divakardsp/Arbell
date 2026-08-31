@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
@@ -65,12 +64,11 @@ export function AppSidebar({
                     className="flex h-9 items-center cursor-pointer"
                 >
                     {mounted ? (
-                        <Image
+                        <img
                             src={logoSrc}
                             alt="Arbell"
                             width={110}
                             height={32}
-                            priority
                             className="h-8 w-auto object-contain"
                         />
                     ) : (
@@ -90,11 +88,10 @@ export function AppSidebar({
                                 <SidebarMenuButton
                                     isActive={activeView === "orders"}
                                     onClick={() => onSelectView?.("orders")}
-                                    className={`gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                                        activeView === "orders"
+                                    className={`gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${activeView === "orders"
                                             ? "bg-active text-accent font-semibold"
                                             : "text-foreground hover:bg-hover hover:text-foreground"
-                                    }`}
+                                        }`}
                                 >
                                     <Package className={`size-4 ${activeView === "orders" ? "text-accent" : "text-muted"}`} />
                                     <span>Orders</span>
@@ -105,14 +102,13 @@ export function AppSidebar({
                                 <SidebarMenuButton
                                     isActive={activeView === "mandates"}
                                     onClick={() => onSelectView?.("mandates")}
-                                    className={`gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                                        activeView === "mandates"
+                                    className={`gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${activeView === "mandates"
                                             ? "bg-active text-accent font-semibold"
                                             : "text-foreground hover:bg-hover hover:text-foreground"
-                                    }`}
+                                        }`}
                                 >
                                     <FileText className={`size-4 ${activeView === "mandates" ? "text-accent" : "text-muted"}`} />
-                                    <span>Your Mandates</span>
+                                    <span>Your Mandate</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         </SidebarMenu>

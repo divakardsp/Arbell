@@ -90,10 +90,10 @@ export interface MockMandate {
     id: string;
     amountAuthorized: string;
     amountRemaining: string;
-    merchantName?: string;
     createdAt?: string;
     validUntil?: string;
+    status?: "active" | "revoked";
 }
 
-export const mockMandates: MockMandate[] = [
-];
+export const mockMandates: MockMandate[] = [];
+

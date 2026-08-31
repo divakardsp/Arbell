@@ -9,7 +9,9 @@ export function ThemeToggle() {
     const { resolvedTheme, setTheme } = useTheme();
     const [mounted, setMounted] = useState(false);
 
+    console.log("Theme Toggle")
     useEffect(() => {
+        console.log("Theme Toggle Mounted")
         setMounted(true);
     }, []);
 
@@ -22,7 +24,7 @@ export function ThemeToggle() {
                 aria-label="Toggle theme placeholder"
                 disabled
             >
-                <span className="size-4" />
+                <span className="size-4" >Mode</span>
             </Button>
         );
     }

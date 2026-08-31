@@ -1,22 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, ShieldCheck } from "lucide-react";
+import { Plus, ShieldCheck, CheckCircle2, AlertCircle, Calendar, Wallet, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MandateRow } from "@/components/mandate-row";
-import {
-    Table,
-    TableBody,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
 import { CreateMandateDialog } from "@/components/create-mandate-dialog";
-import { mockMandates as initialMandates } from "@/lib/mock-data";
+import { mockMandates as initialMandates, type MockMandate } from "@/lib/mock-data";
 
 export function MandatesView() {
-    const [mandates, setMandates] = useState(initialMandates);
+    const [mandates, setMandates] = useState<MockMandate[]>(initialMandates);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+    // Single mandate model: find the latest mandate
+    const activeMandate = mandates.length > 0 ? mandates[0] : null;
+    const isRevoked = activeMandate?.status === "revoked";
+    const hasActiveMandate = !!activeMandate && !isRevoked;
 
     const handleCreateMandate = (data: { amount: string; validUntil: string }) => {
         const todayFormatted = new Date().toLocaleDateString("en-GB", {
@@ -30,20 +27,30 @@ export function MandatesView() {
             year: "numeric",
         });
 
-        const newMandate = {
+        const newMandate: MockMandate = {
             id: `man-${Date.now()}`,
             amountAuthorized: data.amount,
             amountRemaining: data.amount,
-            merchantName: "Arbell AutoPay",
             createdAt: todayFormatted,
             validUntil: validUntilFormatted,
+            status: "active",
         };
-        setMandates((prev) => [newMandate, ...prev]);
+        // Replace with new active mandate
+        setMandates([newMandate]);
+    };
+
+    const handleRevoke = () => {
+        if (!activeMandate) return;
+        setMandates((prev) =>
+            prev.map((m) =>
+                m.id === activeMandate.id ? { ...m, status: "revoked" as const } : m
+            )
+        );
     };
 
     return (
         <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8">
-            <div className="mx-auto max-w-4xl space-y-6">
+            <div className="mx-auto max-w-3xl space-y-6">
                 {/* Header with Title & Create Mandate Button */}
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
                     <div className="flex items-center gap-3">
@@ -52,78 +59,167 @@ export function MandatesView() {
                         </div>
                         <div>
                             <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-                                Your Mandates
+                                Your Mandate
                             </h1>
                             <p className="text-xs text-muted sm:text-sm">
-                                Pre-authorized recurring limits for 1-click autonomous purchasing
+                                Pre-authorized recurring limit for 1-click autonomous purchasing
                             </p>
                         </div>
                     </div>
 
                     <Button
                         onClick={() => setIsDialogOpen(true)}
-                        className="flex items-center gap-2 rounded-xl bg-brand text-white hover:bg-brand/90 shadow-xs"
+                        disabled={hasActiveMandate}
+                        className={`flex items-center gap-2 rounded-xl shadow-xs transition-all ${
+                            hasActiveMandate
+                                ? "bg-hover text-muted cursor-not-allowed opacity-60 border border-border"
+                                : "bg-brand text-white hover:bg-brand/90 cursor-pointer"
+                        }`}
                     >
                         <Plus className="size-4" />
                         <span>Create Mandate</span>
                     </Button>
                 </div>
 
-                {/* Mandates List or Empty State */}
-                {mandates.length === 0 ? (
+                {/* Mandate View Content */}
+                {!activeMandate ? (
+                    /* Empty State: No mandate ever created */
                     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/50 px-6 py-16 text-center">
                         <div className="flex size-12 items-center justify-center rounded-2xl border border-border bg-surface text-muted shadow-xs">
                             <ShieldCheck className="size-6 text-muted" />
                         </div>
                         <h3 className="mt-4 text-base font-semibold text-foreground">
-                            No mandates registered
+                            No active mandate registered
                         </h3>
                         <p className="mt-1.5 max-w-sm text-xs sm:text-sm text-muted leading-relaxed">
-                            You currently have 0 active payment mandates. Create a mandate to enable seamless 1-click autonomous purchases.
+                            You currently have no active payment mandate. Authorize a mandate once to enable seamless 1-click autonomous purchases across all products.
                         </p>
                         <Button
                             onClick={() => setIsDialogOpen(true)}
                             className="mt-6 flex items-center gap-2 rounded-xl bg-brand text-white hover:bg-brand/90 text-xs shadow-xs"
                         >
                             <Plus className="size-3.5" />
-                            <span>Create Your First Mandate</span>
+                            <span>Create Your Mandate</span>
                         </Button>
                     </div>
                 ) : (
-                    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-xs">
-                        <Table>
-                            <TableHeader>
-                                <TableRow className="border-b border-border bg-hover/30 hover:bg-hover/30">
-                                    <TableHead className="w-12 px-4 text-xs font-semibold uppercase tracking-wider text-muted">
-                                        S.No
-                                    </TableHead>
-                                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-wider text-muted">
-                                        Amount Authorized
-                                    </TableHead>
-                                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-wider text-muted">
-                                        Amount Remaining
-                                    </TableHead>
-                                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-wider text-muted">
-                                        Created On
-                                    </TableHead>
-                                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-wider text-muted">
-                                        Valid Until
-                                    </TableHead>
-                                    <TableHead className="px-4 text-right text-xs font-semibold uppercase tracking-wider text-muted">
-                                        Revoke
-                                    </TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {mandates.map((mandate, index) => (
-                                    <MandateRow
-                                        key={mandate.id}
-                                        serialNumber={index + 1}
-                                        mandate={mandate}
-                                    />
-                                ))}
-                            </TableBody>
-                        </Table>
+                    /* Single Mandate Card UI */
+                    <div className="space-y-4">
+                        <div className={`overflow-hidden rounded-2xl border bg-surface p-6 shadow-xs transition-all ${
+                            isRevoked ? "border-border/60 opacity-80" : "border-border"
+                        }`}>
+                            {/* Card Top Row */}
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className={`flex size-10 items-center justify-center rounded-xl border ${
+                                        isRevoked
+                                            ? "border-border bg-hover/50 text-muted"
+                                            : "border-success/30 bg-success/10 text-success"
+                                    }`}>
+                                        {isRevoked ? <AlertCircle className="size-5 text-muted" /> : <CheckCircle2 className="size-5" />}
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h2 className="text-base font-semibold text-foreground">
+                                                Universal Purchase Mandate
+                                            </h2>
+                                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                                isRevoked
+                                                    ? "bg-hover text-muted border border-border"
+                                                    : "bg-success/15 text-success border border-success/20"
+                                            }`}>
+                                                {isRevoked ? "Revoked" : "Active"}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-muted">
+                                            Valid for autonomous 1-click checkouts
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Action: Revoke Button */}
+                                <div>
+                                    {isRevoked ? (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled
+                                            className="rounded-lg border border-border bg-hover/50 text-xs font-medium text-muted cursor-not-allowed opacity-70"
+                                        >
+                                            Revoked
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={handleRevoke}
+                                            className="rounded-lg border border-border bg-surface text-xs font-medium text-error hover:bg-error/10 hover:border-error/30 hover:text-error transition-colors"
+                                        >
+                                            Revoke Mandate
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Mandate Metrics Grid */}
+                            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                                <div className="rounded-xl border border-border/50 bg-main/40 p-4">
+                                    <div className="flex items-center gap-2 text-xs font-medium text-muted">
+                                        <Wallet className="size-3.5" />
+                                        <span>Authorized Limit</span>
+                                    </div>
+                                    <p className="mt-1.5 text-lg font-bold tracking-tight text-foreground">
+                                        {activeMandate.amountAuthorized}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border border-border/50 bg-main/40 p-4">
+                                    <div className="flex items-center gap-2 text-xs font-medium text-muted">
+                                        <ArrowUpRight className="size-3.5 text-brand" />
+                                        <span>Remaining Balance</span>
+                                    </div>
+                                    <p className="mt-1.5 text-lg font-bold tracking-tight text-brand">
+                                        {activeMandate.amountRemaining}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border border-border/50 bg-main/40 p-4">
+                                    <div className="flex items-center gap-2 text-xs font-medium text-muted">
+                                        <Calendar className="size-3.5" />
+                                        <span>Created On</span>
+                                    </div>
+                                    <p className="mt-1.5 text-sm font-semibold text-foreground">
+                                        {activeMandate.createdAt || "—"}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border border-border/50 bg-main/40 p-4">
+                                    <div className="flex items-center gap-2 text-xs font-medium text-muted">
+                                        <Calendar className="size-3.5" />
+                                        <span>Valid Until</span>
+                                    </div>
+                                    <p className="mt-1.5 text-sm font-semibold text-foreground">
+                                        {activeMandate.validUntil || "—"}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* If revoked, encourage creating a new mandate */}
+                        {isRevoked && (
+                            <div className="flex items-center justify-between rounded-xl border border-border/70 bg-surface/70 p-4 text-xs">
+                                <p className="text-muted">
+                                    This mandate was revoked. You can create a new mandate anytime to resume 1-click purchases.
+                                </p>
+                                <Button
+                                    size="sm"
+                                    onClick={() => setIsDialogOpen(true)}
+                                    className="shrink-0 rounded-lg bg-brand text-white hover:bg-brand/90 text-xs shadow-xs"
+                                >
+                                    Create New Mandate
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -137,3 +233,4 @@ export function MandatesView() {
         </div>
     );
 }
+
