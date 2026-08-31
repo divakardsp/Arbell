@@ -356,9 +356,6 @@ export const paymentAuthorizations = pgTable("payment_authorizations", {
     userId: uuid("user_id")
         .notNull()
         .references(() => users.id),
-    merchantId: uuid("merchant_id")
-        .notNull()
-        .references(() => merchants.id),
     authorizedAmount: numeric("authorized_amount", {
         precision: 12,
         scale: 2,

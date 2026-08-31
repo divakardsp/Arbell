@@ -1,12 +1,11 @@
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib";
-import { users, merchants, paymentAuthorizations, authorizationStatusEnum } from "@/db/schema";
+import { users, paymentAuthorizations, authorizationStatusEnum } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
 import { validateUUID } from "@/utils/validators";
 
 export interface CreatePaymentAuthorizationInput {
     userId: string;
-    merchantId: string;
     amount: number | string;
     validUntil: string | Date;
 }
@@ -14,7 +13,6 @@ export interface CreatePaymentAuthorizationInput {
 export interface PaymentAuthorizationResponse {
     id: string;
     userId: string;
-    merchantId: string;
     authorizedAmount: string;
     remainingAmount: string;
     reserveAmount: string;
@@ -25,10 +23,6 @@ export interface PaymentAuthorizationResponse {
 
 export interface UserAuthorizationItem {
     id: string;
-    merchant: {
-        id: string;
-        name: string;
-    };
     authorizedAmount: string;
     remainingAmount: string;
     reserveAmount: string;
@@ -45,7 +39,6 @@ export interface UserAuthorizationsResponse {
 
 export interface VerifyPaymentAuthorizationInput {
     userId: string;
-    merchantId: string;
     amount?: number | string;
 }
 
@@ -76,9 +69,7 @@ export interface CaptureAuthorizationReserveInput {
 }
 
 /**
- * Creates a new payment authorization reserve with status 'pending'.
- * Mocks an external payment authorization provider API.
- * Omits metadata timestamps.
+ * Creates a new universal payment authorization reserve for a user.
  */
 export async function createAuthorization(
     input: CreatePaymentAuthorizationInput
@@ -89,7 +80,6 @@ export async function createAuthorization(
 
     // 1. Validate UUIDs
     const validUserId = validateUUID(input.userId, "User ID");
-    const validMerchantId = validateUUID(input.merchantId, "Merchant ID");
 
     // 2. Validate Amount (Min: ₹500, Max: ₹15,000 INR)
     const amountNum = Number(input.amount);
@@ -98,56 +88,46 @@ export async function createAuthorization(
     }
     if (amountNum < 500 || amountNum > 15000) {
         throw ApiError.badRequest(
-            `Authorization amount must be between ₹500 and ₹15,000 INR. Received: ₹${amountNum.toFixed(2)}.`
+            "Authorization amount must be between ₹500 and ₹15,000 INR."
         );
     }
 
-    // 3. Validate validUntil (Min: 5 days, Max: 30 days from now)
+    // 3. Validate validUntil date (Min: 5 days, Max: 30 days from now)
     if (!input.validUntil) {
-        throw ApiError.badRequest("validUntil date is required.");
+        throw ApiError.badRequest("validUntil is required.");
     }
     const validUntilDate = new Date(input.validUntil);
     if (isNaN(validUntilDate.getTime())) {
-        throw ApiError.badRequest("validUntil must be a valid ISO date timestamp.");
+        throw ApiError.badRequest("validUntil must be a valid ISO date string or Date object.");
     }
 
     const now = Date.now();
-    const minValidUntilMs = now + 5 * 24 * 60 * 60 * 1000; // 5 days from now
-    const maxValidUntilMs = now + 30 * 24 * 60 * 60 * 1000; // 30 days from now
+    const minExpiry = now + 5 * 24 * 60 * 60 * 1000;
+    const maxExpiry = now + 30 * 24 * 60 * 60 * 1000;
 
-    if (validUntilDate.getTime() < minValidUntilMs) {
-        throw ApiError.badRequest("validUntil must be at least 5 days from now.");
-    }
-    if (validUntilDate.getTime() > maxValidUntilMs) {
-        throw ApiError.badRequest("validUntil cannot exceed 30 days from now.");
+    if (validUntilDate.getTime() < minExpiry || validUntilDate.getTime() > maxExpiry) {
+        throw ApiError.badRequest(
+            "validUntil must be between 5 and 30 days from today."
+        );
     }
 
-    // 4. Verify User exists
+    // 4. Verify user exists
     const [user] = await db
         .select({ id: users.id })
         .from(users)
         .where(eq(users.id, validUserId));
+
     if (!user) {
         throw ApiError.notFound(`User with ID '${validUserId}' was not found.`);
     }
 
-    // 5. Verify Merchant exists
-    const [merchant] = await db
-        .select({ id: merchants.id })
-        .from(merchants)
-        .where(eq(merchants.id, validMerchantId));
-    if (!merchant) {
-        throw ApiError.notFound(`Merchant with ID '${validMerchantId}' was not found.`);
-    }
-
     const formattedAmount = amountNum.toFixed(2);
 
-    // 6. Insert pending authorization row
+    // 5. Insert active universal authorization row
     const [inserted] = await db
         .insert(paymentAuthorizations)
         .values({
             userId: validUserId,
-            merchantId: validMerchantId,
             authorizedAmount: formattedAmount,
             remainingAmount: formattedAmount,
             reserveAmount: "0.00",
@@ -158,7 +138,6 @@ export async function createAuthorization(
         .returning({
             id: paymentAuthorizations.id,
             userId: paymentAuthorizations.userId,
-            merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
             reserveAmount: paymentAuthorizations.reserveAmount,
@@ -170,7 +149,6 @@ export async function createAuthorization(
     return {
         id: inserted.id,
         userId: inserted.userId,
-        merchantId: inserted.merchantId,
         authorizedAmount: inserted.authorizedAmount,
         remainingAmount: inserted.remainingAmount,
         reserveAmount: inserted.reserveAmount,
@@ -182,7 +160,6 @@ export async function createAuthorization(
 
 /**
  * Revokes an existing payment authorization.
- * Omits metadata timestamps.
  */
 export async function revokeAuthorization(
     authorizationId: string,
@@ -196,7 +173,6 @@ export async function revokeAuthorization(
         .select({
             id: paymentAuthorizations.id,
             userId: paymentAuthorizations.userId,
-            merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
             reserveAmount: paymentAuthorizations.reserveAmount,
@@ -211,8 +187,8 @@ export async function revokeAuthorization(
         throw ApiError.notFound(`Payment authorization with ID '${validAuthorizationId}' was not found.`);
     }
 
-    // 2. Ownership check (user or merchant)
-    if (auth.userId !== validUserId && auth.merchantId !== validUserId) {
+    // 2. Ownership check
+    if (auth.userId !== validUserId) {
         throw ApiError.forbidden("You are not authorized to revoke this payment authorization.");
     }
 
@@ -229,7 +205,6 @@ export async function revokeAuthorization(
         .returning({
             id: paymentAuthorizations.id,
             userId: paymentAuthorizations.userId,
-            merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
             reserveAmount: paymentAuthorizations.reserveAmount,
@@ -241,7 +216,6 @@ export async function revokeAuthorization(
     return {
         id: updated.id,
         userId: updated.userId,
-        merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
         reserveAmount: updated.reserveAmount,
@@ -287,12 +261,10 @@ export async function getUserAuthorizations(
         conditions.push(eq(paymentAuthorizations.status, matchedStatus));
     }
 
-    // 3. Query authorizations joined with merchants
+    // 3. Query user authorizations
     const rows = await db
         .select({
             id: paymentAuthorizations.id,
-            merchantId: paymentAuthorizations.merchantId,
-            merchantName: merchants.name,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
             reserveAmount: paymentAuthorizations.reserveAmount,
@@ -301,15 +273,11 @@ export async function getUserAuthorizations(
             status: paymentAuthorizations.status,
         })
         .from(paymentAuthorizations)
-        .leftJoin(merchants, eq(paymentAuthorizations.merchantId, merchants.id))
-        .where(and(...conditions));
+        .where(and(...conditions))
+        .orderBy(desc(paymentAuthorizations.createdAt));
 
     const authorizations: UserAuthorizationItem[] = rows.map((r) => ({
         id: r.id,
-        merchant: {
-            id: r.merchantId,
-            name: r.merchantName ?? "",
-        },
         authorizedAmount: r.authorizedAmount,
         remainingAmount: r.remainingAmount,
         reserveAmount: r.reserveAmount ?? "0.00",
@@ -372,7 +340,6 @@ export async function holdAuthorizationReserve(
     return {
         id: updated.id,
         userId: updated.userId,
-        merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
         reserveAmount: updated.reserveAmount,
@@ -413,7 +380,6 @@ export async function releaseAuthorizationReserve(
     return {
         id: updated.id,
         userId: updated.userId,
-        merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
         reserveAmount: updated.reserveAmount,
@@ -454,7 +420,6 @@ export async function captureAuthorizationReserve(
     return {
         id: updated.id,
         userId: updated.userId,
-        merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
         reserveAmount: updated.reserveAmount,
@@ -467,7 +432,6 @@ export async function captureAuthorizationReserve(
 /**
  * Deducts an authorized amount directly from an active payment authorization reserve.
  * Used during direct payment capture / mandate confirmation.
- * Omits metadata timestamps.
  */
 export async function deductAuthorizationAmount(
     input: DeductAuthorizationAmountInput
@@ -486,7 +450,6 @@ export async function deductAuthorizationAmount(
         .select({
             id: paymentAuthorizations.id,
             userId: paymentAuthorizations.userId,
-            merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
             reserveAmount: paymentAuthorizations.reserveAmount,
@@ -530,7 +493,6 @@ export async function deductAuthorizationAmount(
         .returning({
             id: paymentAuthorizations.id,
             userId: paymentAuthorizations.userId,
-            merchantId: paymentAuthorizations.merchantId,
             authorizedAmount: paymentAuthorizations.authorizedAmount,
             remainingAmount: paymentAuthorizations.remainingAmount,
             reserveAmount: paymentAuthorizations.reserveAmount,
@@ -542,7 +504,6 @@ export async function deductAuthorizationAmount(
     return {
         id: updated.id,
         userId: updated.userId,
-        merchantId: updated.merchantId,
         authorizedAmount: updated.authorizedAmount,
         remainingAmount: updated.remainingAmount,
         reserveAmount: updated.reserveAmount,

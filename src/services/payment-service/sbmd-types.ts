@@ -86,3 +86,34 @@ export interface ExecutePreDebitPaymentResponse {
     authorizationDeducted: boolean;
     failureReason?: string;
 }
+
+export interface ProcessRecurringPaymentApiResponseInput {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    signature: string;
+}
+
+export interface ProcessRecurringPaymentApiResponseResponse {
+    success: boolean;
+    orderId: string;
+    paymentId: string;
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    status: string;
+    message: string;
+}
+
+export interface ProcessRazorpayWebhookInput {
+    rawBody: string;
+    webhookSignature: string;
+}
+
+export interface ProcessRazorpayWebhookResponse {
+    received: boolean;
+    event: string;
+    orderId?: string;
+    paymentId?: string;
+    status: "processed" | "ignored" | "already_processed";
+    message: string;
+}
+

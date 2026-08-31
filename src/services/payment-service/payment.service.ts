@@ -12,6 +12,8 @@ import {
     razorpayCustomers,
     razorpayTokens,
     preDebitPayments,
+    paymentAuthorizations,
+    paymentMethodEnum,
 } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
 import { validateUUID } from "@/utils/validators";
@@ -30,6 +32,10 @@ import {
     ConfirmSbmdMandateResponse,
     ExecutePreDebitPaymentInput,
     ExecutePreDebitPaymentResponse,
+    ProcessRecurringPaymentApiResponseInput,
+    ProcessRecurringPaymentApiResponseResponse,
+    ProcessRazorpayWebhookInput,
+    ProcessRazorpayWebhookResponse,
 } from "./sbmd-types";
 
 export interface CreatePaymentItemInput {
@@ -81,7 +87,7 @@ export function verifyPaymentSignature(
     input: VerifyPaymentSignatureInput
 ): VerifyPaymentSignatureResponse {
     const key_secret =
-        process.env.RAZORPAY_API_SECRET || process.env.RAZORPAY_KEY_SECRET;
+        process.env.RAZORPAY_API_SECRET;
     if (!key_secret) {
         throw ApiError.internal(
             "RAZORPAY_API_SECRET is missing from environment configuration."
@@ -205,9 +211,8 @@ export async function processSbmdPayment(
     const userAuthsResponse = await getUserAuthorizations(validUserId, "active");
     const now = Date.now();
 
-    // Find a valid active reserve for this user & merchant with remainingAmount >= calculatedTotal
+    // Find a valid active universal reserve for this user with remainingAmount >= calculatedTotal and not expired
     const validReserve = userAuthsResponse.authorizations.find((auth) => {
-        if (auth.merchant.id !== merchantId) return false;
         if (auth.status !== "active") return false;
         if (auth.validUntil && new Date(auth.validUntil).getTime() <= now) return false;
         return Number(auth.remainingAmount) >= calculatedTotal;
@@ -222,7 +227,7 @@ export async function processSbmdPayment(
         return {
             status: "requires_reserve",
             message:
-                "No valid Arbell payment authorization reserve found with sufficient balance for this merchant. Please create an authorization reserve first.",
+                "No active universal payment authorization mandate found with sufficient balance. Please authorize a mandate first.",
             userId: validUserId,
             merchantId,
             merchantName: merchant?.name,
@@ -734,21 +739,461 @@ export async function confirmSbmdMandate(
 
 
 /**
- * Retrieves all pre-debit payments in 'waiting' status whose paymentAfter window has passed.
- * Used by background debit workers or schedulers.
+ * Shared atomic helper: Executes successful payment capture state transitions.
+ * 
+ * 1. Idempotency guard (if already captured/confirmed, exit).
+ * 2. Sets payments.status -> captured and records payment ID and method.
+ * 3. Sets orders.status -> confirmed.
+ * 4. Transitions product inventory: reserveStock -> soldStock.
+ * 5. Captures payment authorization reserve: reserveAmount -> spentAmount.
+ * 6. Marks preDebitPayments (if exists) -> success.
  */
-export async function getPendingPreDebitPayments() {
+export async function executePaymentSuccessTransition(params: {
+    paymentId: string;
+    orderId: string;
+    razorpayPaymentId?: string;
+    method?: (typeof paymentMethodEnum.enumValues)[number];
+}): Promise<{ alreadyProcessed: boolean }> {
+    return await db.transaction(async (tx) => {
+        const [payment] = await tx
+            .select()
+            .from(payments)
+            .where(eq(payments.id, params.paymentId));
 
-    const now = Number(Math.floor(Date.now() / 1000));
+        if (!payment) {
+            throw ApiError.notFound(`Payment with ID '${params.paymentId}' not found.`);
+        }
 
-    return db
-        .select()
-        .from(preDebitPayments)
-        .where(
-            and(
-                eq(preDebitPayments.status, "waiting"),
-                lte(preDebitPayments.paymentAfter, now)
+        const [order] = await tx
+            .select()
+            .from(orders)
+            .where(eq(orders.id, params.orderId));
+
+        if (!order) {
+            throw ApiError.notFound(`Order with ID '${params.orderId}' not found.`);
+        }
+
+        // Idempotency check: Already processed successfully
+        if (payment.status === "captured" && order.status === "confirmed") {
+            return { alreadyProcessed: true };
+        }
+
+        // 1. Update Payment
+        const updatePaymentPayload: any = {
+            status: "captured",
+            updatedAt: new Date(),
+        };
+        if (params.razorpayPaymentId) {
+            updatePaymentPayload.razorpayPaymentId = params.razorpayPaymentId;
+        }
+        if (params.method) {
+            updatePaymentPayload.method = params.method;
+        }
+
+        await tx
+            .update(payments)
+            .set(updatePaymentPayload)
+            .where(eq(payments.id, params.paymentId));
+
+        // 2. Update Order
+        await tx
+            .update(orders)
+            .set({
+                status: "confirmed",
+                updatedAt: new Date(),
+            })
+            .where(eq(orders.id, params.orderId));
+
+        // 3. Update Pre-debit payment if exists
+        await tx
+            .update(preDebitPayments)
+            .set({
+                status: "completed",
+                updatedAt: new Date(),
+            })
+            .where(eq(preDebitPayments.paymentId, params.paymentId));
+
+        // 4. Update Inventory: reserveStock -> soldStock
+        const orderItemRows = await tx
+            .select()
+            .from(orderItems)
+            .where(eq(orderItems.orderId, params.orderId));
+
+        for (const item of orderItemRows) {
+            await tx
+                .update(products)
+                .set({
+                    reserveStock: sql`GREATEST(0, ${products.reserveStock} - ${item.quantity})`,
+                    soldStock: sql`${products.soldStock} + ${item.quantity}`,
+                })
+                .where(eq(products.id, item.productId));
+        }
+
+        // 5. Update Authorization: reserveAmount -> spentAmount
+        const [auth] = await tx
+            .select()
+            .from(paymentAuthorizations)
+            .where(
+                and(
+                    eq(paymentAuthorizations.userId, order.userId),
+                    eq(paymentAuthorizations.status, "active")
+                )
             )
-        )
-        .orderBy(preDebitPayments.paymentAfter);
+            .orderBy(desc(paymentAuthorizations.createdAt))
+            .limit(1);
+
+        if (auth) {
+            const amountNum = Number(payment.amount);
+            if (!isNaN(amountNum) && amountNum > 0) {
+                const amountStr = amountNum.toFixed(2);
+                await tx
+                    .update(paymentAuthorizations)
+                    .set({
+                        reserveAmount: sql`GREATEST(0, ${paymentAuthorizations.reserveAmount} - ${amountStr}::numeric)`,
+                        spentAmount: sql`${paymentAuthorizations.spentAmount} + ${amountStr}::numeric`,
+                    })
+                    .where(eq(paymentAuthorizations.id, auth.id));
+            }
+        }
+
+        return { alreadyProcessed: false };
+    });
 }
+
+/**
+ * Shared atomic helper: Executes payment failure state transitions and cleanups.
+ * 
+ * 1. Idempotency guard (if already failed/cancelled, exit).
+ * 2. Sets payments.status -> failed.
+ * 3. Sets orders.status -> failed.
+ * 4. Rolls back product inventory: reserveStock -> availableStock.
+ * 5. Releases payment authorization reserve: reserveAmount -> remainingAmount.
+ * 6. Marks preDebitPayments (if exists) -> failed.
+ */
+export async function executePaymentFailureTransition(params: {
+    paymentId: string;
+    orderId: string;
+    reason?: string;
+}): Promise<{ alreadyProcessed: boolean }> {
+    return await db.transaction(async (tx) => {
+        const [payment] = await tx
+            .select()
+            .from(payments)
+            .where(eq(payments.id, params.paymentId));
+
+        if (!payment) {
+            throw ApiError.notFound(`Payment with ID '${params.paymentId}' not found.`);
+        }
+
+        const [order] = await tx
+            .select()
+            .from(orders)
+            .where(eq(orders.id, params.orderId));
+
+        if (!order) {
+            throw ApiError.notFound(`Order with ID '${params.orderId}' not found.`);
+        }
+
+        // Idempotency check: Already failed
+        if (payment.status === "failed" && order.status === "failed") {
+            return { alreadyProcessed: true };
+        }
+
+        // 1. Update Payment
+        await tx
+            .update(payments)
+            .set({
+                status: "failed",
+                updatedAt: new Date(),
+            })
+            .where(eq(payments.id, params.paymentId));
+
+        // 2. Update Order
+        await tx
+            .update(orders)
+            .set({
+                status: "failed",
+                updatedAt: new Date(),
+            })
+            .where(eq(orders.id, params.orderId));
+
+        // 3. Update Pre-debit payment if exists
+        await tx
+            .update(preDebitPayments)
+            .set({
+                status: "failed",
+                failureReason: params.reason || "Payment failed",
+                updatedAt: new Date(),
+            })
+            .where(eq(preDebitPayments.paymentId, params.paymentId));
+
+        // 4. Release Inventory: reserveStock -> availableStock
+        const orderItemRows = await tx
+            .select()
+            .from(orderItems)
+            .where(eq(orderItems.orderId, params.orderId));
+
+        for (const item of orderItemRows) {
+            await tx
+                .update(products)
+                .set({
+                    reserveStock: sql`GREATEST(0, ${products.reserveStock} - ${item.quantity})`,
+                    availableStock: sql`${products.availableStock} + ${item.quantity}`,
+                })
+                .where(eq(products.id, item.productId));
+        }
+
+        // 5. Release Authorization: reserveAmount -> remainingAmount
+        const [auth] = await tx
+            .select()
+            .from(paymentAuthorizations)
+            .where(
+                and(
+                    eq(paymentAuthorizations.userId, order.userId),
+                )
+            )
+            .orderBy(desc(paymentAuthorizations.createdAt))
+            .limit(1);
+
+        if (auth) {
+            const amountNum = Number(payment.amount);
+            if (!isNaN(amountNum) && amountNum > 0) {
+                const amountStr = amountNum.toFixed(2);
+                await tx
+                    .update(paymentAuthorizations)
+                    .set({
+                        remainingAmount: sql`${paymentAuthorizations.remainingAmount} + ${amountStr}::numeric`,
+                        reserveAmount: sql`GREATEST(0, ${paymentAuthorizations.reserveAmount} - ${amountStr}::numeric)`,
+                    })
+                    .where(eq(paymentAuthorizations.id, auth.id));
+            }
+        }
+
+        return { alreadyProcessed: false };
+    });
+}
+
+/**
+ * FUNCTION 1:
+ * Processes response received after Razorpay recurring/SBMD payment execution.
+ * 
+ * 1. Validates input.
+ * 2. Verifies Razorpay payment signature using RAZORPAY_API_SECRET / RAZORPAY_KEY_SECRET.
+ * 3. Associates razorpayPaymentId with payments table.
+ * 4. DOES NOT change payment status (delegated to webhook for finality).
+ */
+export async function processRecurringPaymentFromApiResponse(
+    input: ProcessRecurringPaymentApiResponseInput
+): Promise<ProcessRecurringPaymentApiResponseResponse> {
+    if (!input || typeof input !== "object") {
+        throw ApiError.badRequest("Request body must be an object with razorpayOrderId, razorpayPaymentId, and signature.");
+    }
+
+    const { razorpayOrderId, razorpayPaymentId, signature } = input;
+
+    if (!razorpayOrderId || typeof razorpayOrderId !== "string" || !razorpayOrderId.trim()) {
+        throw ApiError.badRequest("razorpayOrderId is required.");
+    }
+
+    if (!razorpayPaymentId || typeof razorpayPaymentId !== "string" || !razorpayPaymentId.trim()) {
+        throw ApiError.badRequest("razorpayPaymentId is required.");
+    }
+
+    if (!signature || typeof signature !== "string" || !signature.trim()) {
+        throw ApiError.badRequest("signature is required.");
+    }
+
+    // 1. Signature Verification using RAZORPAY_API_SECRET
+    const { isValid } = verifyPaymentSignature({
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature: signature,
+    });
+
+    if (!isValid) {
+        throw ApiError.badRequest("Invalid Razorpay payment signature verification failed.");
+    }
+
+    // 2. Lookup payment by Razorpay Order ID
+    const [dbPayment] = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.razorpayOrderId, razorpayOrderId))
+        .orderBy(desc(payments.createdAt))
+        .limit(1);
+
+    if (!dbPayment) {
+        throw ApiError.notFound(`No payment record found associated with Razorpay Order ID '${razorpayOrderId}'.`);
+    }
+
+    // 3. Store razorpayPaymentId in payments record without mutating final status
+    await db
+        .update(payments)
+        .set({
+            razorpayPaymentId,
+            updatedAt: new Date(),
+        })
+        .where(eq(payments.id, dbPayment.id));
+
+    return {
+        success: true,
+        orderId: dbPayment.orderId,
+        paymentId: dbPayment.id,
+        razorpayOrderId,
+        razorpayPaymentId,
+        status: dbPayment.status,
+        message: "Payment response verified and linked. Awaiting final confirmation via webhook.",
+    };
+}
+
+/**
+ * FUNCTION 2:
+ * Processes incoming Razorpay webhooks.
+ * 
+ * 1. Validates payload and HMAC signature using RAZORPAY_WEBHOOK_SECRET.
+ * 2. Parses event type (payment.captured, order.paid, payment.failed, etc.).
+ * 3. Applies atomic transactional state transitions with idempotency checks.
+ */
+export async function processRazorpayWebhook(
+    input: ProcessRazorpayWebhookInput
+): Promise<ProcessRazorpayWebhookResponse> {
+    if (!input || typeof input !== "object") {
+        throw ApiError.badRequest("Webhook input must be an object with rawBody and webhookSignature.");
+    }
+
+    const { rawBody, webhookSignature } = input;
+
+    if (!rawBody || typeof rawBody !== "string") {
+        throw ApiError.badRequest("Missing rawBody in webhook payload.");
+    }
+
+    if (!webhookSignature || typeof webhookSignature !== "string") {
+        throw ApiError.badRequest("Missing webhookSignature (x-razorpay-signature header).");
+    }
+
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+        throw ApiError.internal("RAZORPAY_WEBHOOK_SECRET is missing from environment configuration.");
+    }
+
+    // 1. Verify Webhook HMAC Signature
+    const expectedSignature = crypto
+        .createHmac("sha256", webhookSecret)
+        .update(rawBody)
+        .digest("hex");
+
+    if (expectedSignature !== webhookSignature) {
+        throw ApiError.unauthorized("Invalid Razorpay webhook signature.");
+    }
+
+    // 2. Parse Webhook Event JSON
+    let eventPayload: any;
+    try {
+        eventPayload = JSON.parse(rawBody);
+        console.log(eventPayload)
+    } catch {
+        throw ApiError.badRequest("Webhook rawBody is not valid JSON.");
+    }
+
+    const event = eventPayload.event;
+    if (!event || typeof event !== "string") {
+        throw ApiError.badRequest("Webhook payload missing 'event' field.");
+    }
+
+    const paymentEntity = eventPayload.payload?.payment?.entity;
+    const orderEntity = eventPayload.payload?.order?.entity;
+
+    const razorpayOrderId = paymentEntity?.order_id || orderEntity?.id;
+    const razorpayPaymentId = paymentEntity?.id;
+
+    if (!razorpayOrderId && !razorpayPaymentId) {
+        return {
+            received: true,
+            event,
+            status: "ignored",
+            message: "Webhook event has no associated order_id or payment_id entity.",
+        };
+    }
+
+    // 3. Find corresponding Arbell Payment
+    let dbPayment;
+    if (razorpayOrderId) {
+        [dbPayment] = await db
+            .select()
+            .from(payments)
+            .where(eq(payments.razorpayOrderId, razorpayOrderId))
+            .orderBy(desc(payments.createdAt))
+            .limit(1);
+    }
+
+    if (!dbPayment && razorpayPaymentId) {
+        [dbPayment] = await db
+            .select()
+            .from(payments)
+            .where(eq(payments.razorpayPaymentId, razorpayPaymentId))
+            .orderBy(desc(payments.createdAt))
+            .limit(1);
+    }
+
+    if (!dbPayment) {
+        return {
+            received: true,
+            event,
+            status: "ignored",
+            message: "No matching Arbell payment record found for this webhook entity.",
+        };
+    }
+
+    // 4. Handle Specific Event Types
+    if (event === "payment.captured" || event === "order.paid") {
+        const method = paymentEntity?.method === "card" ? "card" : "upi";
+        const { alreadyProcessed } = await executePaymentSuccessTransition({
+            paymentId: dbPayment.id,
+            orderId: dbPayment.orderId,
+            razorpayPaymentId: razorpayPaymentId || dbPayment.razorpayPaymentId || undefined,
+            method,
+        });
+
+        return {
+            received: true,
+            event,
+            orderId: dbPayment.orderId,
+            paymentId: dbPayment.id,
+            status: alreadyProcessed ? "already_processed" : "processed",
+            message: alreadyProcessed
+                ? "Payment was already captured and confirmed."
+                : "Payment captured, order confirmed, and stock liquidated successfully.",
+        };
+    }
+
+    if (event === "payment.failed") {
+        const failureReason = paymentEntity?.error_description || "Razorpay payment failed";
+        const { alreadyProcessed } = await executePaymentFailureTransition({
+            paymentId: dbPayment.id,
+            orderId: dbPayment.orderId,
+            reason: failureReason,
+        });
+
+        return {
+            received: true,
+            event,
+            orderId: dbPayment.orderId,
+            paymentId: dbPayment.id,
+            status: alreadyProcessed ? "already_processed" : "processed",
+            message: alreadyProcessed
+                ? "Payment failure was already processed."
+                : "Payment marked failed, order cancelled, and stock/authorization released.",
+        };
+    }
+
+    // Other events (refunds, token updates, etc.)
+    return {
+        received: true,
+        event,
+        orderId: dbPayment.orderId,
+        paymentId: dbPayment.id,
+        status: "ignored",
+        message: `Webhook event '${event}' acknowledged without state mutation.`,
+    };
+}
+
