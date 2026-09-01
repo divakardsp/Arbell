@@ -1,0 +1,1 @@
+ALTER TABLE "products" ALTER COLUMN "searchable_field" SET NOT NULL;
