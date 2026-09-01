@@ -6,6 +6,6 @@ export interface BuyerAgentConfig {
 
 export const buyerConfig: BuyerAgentConfig = {
     model: process.env.OPENAI_MODEL || "gpt-5",
-    maxIterations: 8,
+    maxIterations: 15,
     temperature: 1,
 };

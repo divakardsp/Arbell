@@ -1,5 +1,5 @@
 import { runAgent } from "../core/agent-runner";
-import { AgentRequest, AgentResponse } from "./buyer.types";
+import { AgentRequest, AgentResponse, RunAgentOptions } from "./buyer.types";
 import { BuyerAgentConfig, buyerConfig as defaultBuyerConfig } from "./buyer.config";
 
 /**
@@ -12,9 +12,13 @@ export class BuyerAgent {
     /**
      * Executes the buyer agent loop for a given user request and execution context.
      */
-    async run(request: AgentRequest): Promise<AgentResponse> {
-        return runAgent(request, this.config);
+    async run(
+        request: AgentRequest,
+        options?: RunAgentOptions
+    ): Promise<AgentResponse> {
+        return runAgent(request, this.config, options);
     }
 }
 
 export const buyerAgent = new BuyerAgent();
+
