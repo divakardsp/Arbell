@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { eq, and, inArray, sql, lte, desc } from "drizzle-orm";
+import { eq, and, or, inArray, sql, lte, desc } from "drizzle-orm";
 import { db } from "@/lib";
 import { getRazorpayInstance } from "@/lib/razorpay";
 import {
@@ -78,6 +78,18 @@ export interface VerifyPaymentSignatureInput {
 
 export interface VerifyPaymentSignatureResponse {
     isValid: boolean;
+}
+
+export interface razorpayPaymentCallInput {
+    preDebitPaymentId?: string;
+    paymentId: string;
+    orderId: string;
+    razorpayOrderId: string;
+    encryptedRazorpayTokenId: string;
+    amount: string | number;
+    currency?: string;
+    status?: string;
+    email: string;
 }
 
 /**
@@ -477,7 +489,7 @@ export async function processSbmdPayment(
         .returning();
 
     // Razorpay returns payment_after as a Unix epoch timestamp (seconds integer)
-    const paymentAfterRaw = debitOrder.notification?.payment_after;
+    const paymentAfterRaw = (debitOrder as any)?.notification?.payment_after;
     const paymentAfterUnix = paymentAfterRaw
         ? Math.floor(Number(paymentAfterRaw))
         : Math.floor(Date.now() / 1000);
@@ -648,7 +660,7 @@ export async function confirmSbmdMandate(
         }
 
         const tokenId = paymentDetails.token_id;
-        if (!tokenId || typeof tokenId !== "string"){
+        if (!tokenId || typeof tokenId !== "string") {
             throw ApiError.badRequest("No token_id returned by Razorpay for this authorization payment.");
         }
 
@@ -661,7 +673,7 @@ export async function confirmSbmdMandate(
             .from(razorpayCustomers)
             .where(eq(razorpayCustomers.userId, validUserId));
 
-        if (!dbCustomer){
+        if (!dbCustomer) {
             throw ApiError.notFound("Razorpay customer mapping not found for user.");
         }
 
@@ -1026,14 +1038,16 @@ export async function processRecurringPaymentFromApiResponse(
         throw ApiError.notFound(`No payment record found associated with Razorpay Order ID '${razorpayOrderId}'.`);
     }
 
-    // 3. Store razorpayPaymentId in payments record without mutating final status
-    await db
+    // 3. Store razorpayPaymentId and ensure status is "created" without final confirmation
+    const [updatedPayment] = await db
         .update(payments)
         .set({
             razorpayPaymentId,
+            status: "created",
             updatedAt: new Date(),
         })
-        .where(eq(payments.id, dbPayment.id));
+        .where(eq(payments.id, dbPayment.id))
+        .returning();
 
     return {
         success: true,
@@ -1041,8 +1055,8 @@ export async function processRecurringPaymentFromApiResponse(
         paymentId: dbPayment.id,
         razorpayOrderId,
         razorpayPaymentId,
-        status: dbPayment.status,
-        message: "Payment response verified and linked. Awaiting final confirmation via webhook.",
+        status: updatedPayment?.status || "created",
+        message: "Payment response verified and linked with status set to created. Awaiting final confirmation via webhook.",
     };
 }
 
@@ -1090,6 +1104,8 @@ export async function processRazorpayWebhook(
     let eventPayload: any;
     try {
         eventPayload = JSON.parse(rawBody);
+        console.dir(eventPayload, { depth: null })
+        console.log("LOGGING---------------------------------------------------")
         console.log(eventPayload)
     } catch {
         throw ApiError.badRequest("Webhook rawBody is not valid JSON.");
@@ -1177,8 +1193,6 @@ export async function processRazorpayWebhook(
         return {
             received: true,
             event,
-            orderId: dbPayment.orderId,
-            paymentId: dbPayment.id,
             status: alreadyProcessed ? "already_processed" : "processed",
             message: alreadyProcessed
                 ? "Payment failure was already processed."
@@ -1196,4 +1210,217 @@ export async function processRazorpayWebhook(
         message: `Webhook event '${event}' acknowledged without state mutation.`,
     };
 }
+
+export async function razorpayPaymentCall(inputs: razorpayPaymentCallInput[]) {
+    if (!Array.isArray(inputs) || inputs.length === 0) {
+        return [];
+    }
+
+    const razorpay = getRazorpayInstance();
+    const results = [];
+
+    for (const item of inputs) {
+        const {
+            paymentId,
+            orderId,
+            razorpayOrderId,
+            encryptedRazorpayTokenId,
+            amount: rawAmount,
+            currency = "INR",
+            email,
+            preDebitPaymentId,
+        } = item;
+
+        try {
+            // 1. Basic input validation
+            if (!paymentId || !orderId || !razorpayOrderId || !encryptedRazorpayTokenId || !email) {
+                const missingMsg = "Missing required parameters (paymentId, orderId, razorpayOrderId, encryptedRazorpayTokenId, or email).";
+                console.error(`[razorpayPaymentCall] Validation failed:`, { item, error: missingMsg });
+
+                if (paymentId && orderId) {
+                    await executePaymentFailureTransition({
+                        paymentId,
+                        orderId,
+                        reason: missingMsg,
+                    }).catch((err) => console.error(`[razorpayPaymentCall] Failed executePaymentFailureTransition:`, err));
+                }
+
+                results.push({
+                    paymentId: paymentId || "unknown",
+                    orderId: orderId || "unknown",
+                    success: false,
+                    error: missingMsg,
+                });
+                continue;
+            }
+
+            // 2. Fetch User & Customer ID corresponding to orderId
+            const [orderRecord] = await db
+                .select({
+                    orderId: orders.id,
+                    userId: orders.userId,
+                })
+                .from(orders)
+                .where(eq(orders.id, orderId))
+                .limit(1);
+
+            if (!orderRecord || !orderRecord.userId) {
+                const userNotFoundMsg = `Order '${orderId}' or associated user not found.`;
+                console.error(`[razorpayPaymentCall] ${userNotFoundMsg}`);
+
+                await executePaymentFailureTransition({
+                    paymentId,
+                    orderId,
+                    reason: userNotFoundMsg,
+                }).catch((err) => console.error(`[razorpayPaymentCall] Failed executePaymentFailureTransition:`, err));
+
+                results.push({
+                    paymentId,
+                    orderId,
+                    success: false,
+                    error: userNotFoundMsg,
+                });
+                continue;
+            }
+
+            const [customerRecord] = await db
+                .select({
+                    razorpayCustomerId: razorpayCustomers.razorpayCustomerId,
+                })
+                .from(razorpayCustomers)
+                .where(eq(razorpayCustomers.userId, orderRecord.userId))
+                .limit(1);
+
+            if (!customerRecord || !customerRecord.razorpayCustomerId) {
+                const custNotFoundMsg = `Razorpay customer ID not found for userId '${orderRecord.userId}'.`;
+                console.error(`[razorpayPaymentCall] ${custNotFoundMsg}`);
+
+                await executePaymentFailureTransition({
+                    paymentId,
+                    orderId,
+                    reason: custNotFoundMsg,
+                }).catch((err) => console.error(`[razorpayPaymentCall] Failed executePaymentFailureTransition:`, err));
+
+                results.push({
+                    paymentId,
+                    orderId,
+                    success: false,
+                    error: custNotFoundMsg,
+                });
+                continue;
+            }
+
+            // 3. Prepare parameters for Razorpay recurring payment API
+            const amountNum = Number(rawAmount);
+            if (isNaN(amountNum) || amountNum <= 0) {
+                const invalidAmountMsg = `Invalid payment amount '${rawAmount}'.`;
+                console.error(`[razorpayPaymentCall] ${invalidAmountMsg}`);
+
+                await executePaymentFailureTransition({
+                    paymentId,
+                    orderId,
+                    reason: invalidAmountMsg,
+                }).catch((err) => console.error(`[razorpayPaymentCall] Failed executePaymentFailureTransition:`, err));
+
+                results.push({
+                    paymentId,
+                    orderId,
+                    success: false,
+                    error: invalidAmountMsg,
+                });
+                continue;
+            }
+
+            // Convert amount to subunits (paise)
+            const amountInSubunits = Math.round(amountNum * 100);
+            const plainToken = decryptToken(encryptedRazorpayTokenId);
+
+            const paymentPayload = {
+                email: email.trim(),
+                contact: "9999999999",
+                amount: amountInSubunits,
+                currency,
+                order_id: razorpayOrderId,
+                customer_id: customerRecord.razorpayCustomerId,
+                token: plainToken,
+                recurring: true,
+                description: `Recurring debit for order ${orderId}`,
+                notes: {
+                    orderId,
+                    paymentId,
+                    preDebitPaymentId: preDebitPaymentId || "",
+                },
+            };
+
+            // 4. Call Razorpay payment API
+            let rzpResponse: any;
+            try {
+                rzpResponse = await razorpay.payments.createRecurringPayment(paymentPayload);
+            } catch (apiError: unknown) {
+                const parsedError = parseRazorpayError(apiError);
+                const failureReason = parsedError.reason || parsedError.description || "Razorpay recurring payment failed";
+
+                console.error(`[razorpayPaymentCall] Razorpay API Error for paymentId '${paymentId}':`, {
+                    parsedError,
+                    apiError,
+                });
+
+                await executePaymentFailureTransition({
+                    paymentId,
+                    orderId,
+                    reason: failureReason,
+                }).catch((err) => console.error(`[razorpayPaymentCall] Failed executePaymentFailureTransition:`, err));
+
+                results.push({
+                    paymentId,
+                    orderId,
+                    success: false,
+                    error: failureReason,
+                    details: parsedError,
+                });
+                continue;
+            }
+
+            // 5. Success handling
+            const razorpayPaymentId = rzpResponse.razorpay_payment_id || rzpResponse.id;
+            const resRazorpayOrderId = rzpResponse.razorpay_order_id || razorpayOrderId;
+            const razorpaySignature = rzpResponse.razorpay_signature || "";
+
+            const processResult = await processRecurringPaymentFromApiResponse({
+                razorpayOrderId: resRazorpayOrderId,
+                razorpayPaymentId,
+                signature: razorpaySignature,
+            });
+
+            results.push({
+                paymentId,
+                orderId,
+                success: true,
+                razorpayPaymentId,
+                razorpayOrderId: resRazorpayOrderId,
+                processResult,
+            });
+        } catch (unexpectedError: any) {
+            console.error(`[razorpayPaymentCall] Unexpected error for paymentId '${paymentId}':`, unexpectedError);
+
+            if (paymentId && orderId) {
+                await executePaymentFailureTransition({
+                    paymentId,
+                    orderId,
+                    reason: unexpectedError?.message || "Unexpected error during recurring payment processing",
+                }).catch((err) => console.error(`[razorpayPaymentCall] Failed executePaymentFailureTransition:`, err));
+            }
+
+            results.push({
+                paymentId: paymentId || "unknown",
+                orderId: orderId || "unknown",
+                success: false,
+                error: unexpectedError?.message || "Internal error occurred",
+            });
+        }
+    }
+
+    return results;
+}
+
 
