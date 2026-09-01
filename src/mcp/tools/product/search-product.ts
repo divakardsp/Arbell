@@ -6,11 +6,9 @@ export const searchProductsTool = {
     name: "search_products",
 
     description:
-        "Search Arbell products using keywords, category, merchant, price range, stock availability, and pagination.",
+        "Search Arbell products using mandatory category and search keywords (e.g. 'laptop 6gb', '5g phone'), merchant, price range, stock availability, and pagination.",
 
     inputSchema: {
-        search: z.string().optional(),
-
         category: z.enum([
             "Electronics",
             "Clothing",
@@ -30,7 +28,12 @@ export const searchProductsTool = {
             "Cameras & Photography",
             "Appliances",
             "Health & Wellness",
-        ]).optional(),
+        ]).describe("Mandatory product category"),
+
+        search: z
+            .string()
+            .optional()
+            .describe("Search keywords containing product specifications, brand, features, etc. (e.g. 'laptop 6gb', 'shoes black 9')"),
 
         merchantId: z.string().uuid().optional(),
 
@@ -46,8 +49,8 @@ export const searchProductsTool = {
     },
 
     handler: async (args: {
+        category: string;
         search?: string;
-        category?: string;
         merchantId?: string;
         minPrice?: number;
         maxPrice?: number;
