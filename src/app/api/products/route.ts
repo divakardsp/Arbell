@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { searchProducts } from "@/services/product-service";
 import { ApiResponse } from "@/utils/ApiResponse";
+import { ApiError } from "@/utils/ApiError";
 import { handleApiError } from "@/utils/errorHandler";
 
 const STANDARD_QUERY_PARAMS = new Set([
@@ -36,9 +37,13 @@ export async function GET(request: NextRequest) {
             }
         }
 
+        if (!category || category.trim() === "") {
+            throw ApiError.badRequest("Category query parameter is required.");
+        }
+
         const result = await searchProducts({
-            search,
             category,
+            search,
             merchantId,
             minPrice,
             maxPrice,

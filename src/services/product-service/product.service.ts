@@ -37,8 +37,8 @@ export interface ProductComparisonResponse {
 }
 
 export interface ProductSearchParams {
+    category: string;
     search?: string | null;
-    category?: string | null;
     merchantId?: string | null;
     minPrice?: string | number | null;
     maxPrice?: string | number | null;
@@ -62,11 +62,11 @@ export interface SearchProductsResponse {
  * Searches and filters products dynamically.
  *
  * Flow:
- * Category -> Determine allowed attributes -> Build filters dynamically -> Query JSONB attributes
+ * Mandatory Category -> Determine allowed attributes -> Build filters dynamically -> Query searchable_field by keywords & JSONB attributes
  * Omits metadata timestamps.
  */
 export async function searchProducts(
-    params: ProductSearchParams = {}
+    params: ProductSearchParams
 ): Promise<SearchProductsResponse> {
     const pageStr = params.page !== undefined && params.page !== null ? String(params.page) : undefined;
     const limitStr = params.limit !== undefined && params.limit !== null ? String(params.limit) : undefined;
@@ -74,23 +74,23 @@ export async function searchProducts(
 
     const conditions: SQL[] = [];
 
-    // 1. Category validation
-    let matchedCategory: (typeof categoryEnum.enumValues)[number] | undefined;
-
-    if (params.category !== undefined && params.category !== null && String(params.category).trim() !== "") {
-        const categoryQuery = String(params.category).trim();
-        matchedCategory = categoryEnum.enumValues.find(
-            (c) => c.toLowerCase() === categoryQuery.toLowerCase()
-        );
-
-        if (!matchedCategory) {
-            throw ApiError.badRequest(`Invalid category: '${categoryQuery}'.`);
-        }
-
-        conditions.push(eq(products.category, matchedCategory));
+    // 1. Mandatory Category validation
+    if (!params.category || String(params.category).trim() === "") {
+        throw ApiError.badRequest("Category is required for product search.");
     }
 
-    // 2. Dynamic JSONB attributes filter (scoped to category if provided, or cross-category if omitted)
+    const categoryQuery = String(params.category).trim();
+    const matchedCategory = categoryEnum.enumValues.find(
+        (c) => c.toLowerCase() === categoryQuery.toLowerCase()
+    );
+
+    if (!matchedCategory) {
+        throw ApiError.badRequest(`Invalid category: '${categoryQuery}'.`);
+    }
+
+    conditions.push(eq(products.category, matchedCategory));
+
+    // 2. Dynamic JSONB attributes filter (scoped to category)
     if (params.attributes && Object.keys(params.attributes).length > 0) {
         const jsonbConditions = buildJsonbAttributeFilters(
             matchedCategory,
@@ -99,15 +99,26 @@ export async function searchProducts(
         conditions.push(...jsonbConditions);
     }
 
-    // 2. Keyword Search (productName, description)
+    // 3. Keyword Search in searchableField (each word matched against searchable_field)
     if (params.search !== undefined && params.search !== null && String(params.search).trim() !== "") {
-        const searchKeyword = `%${String(params.search).trim()}%`;
-        const searchCondition = or(
-            ilike(products.productName, searchKeyword),
-            ilike(products.description, searchKeyword)
-        );
-        if (searchCondition) {
-            conditions.push(searchCondition);
+        const words = String(params.search)
+            .trim()
+            .toLowerCase()
+            .split(/\s+/)
+            .filter(Boolean);
+
+        if (words.length > 0) {
+            // Match each word in searchableField or fallback to name/description/category
+            const wordConditions = words.map((word) => {
+                const keyword = `%${word}%`;
+                return ilike(products.searchableField, keyword)
+
+            });
+
+            const combinedSearchCondition = and(...wordConditions);
+            if (combinedSearchCondition) {
+                conditions.push(combinedSearchCondition);
+            }
         }
     }
 
