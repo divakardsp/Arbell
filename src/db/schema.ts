@@ -182,6 +182,8 @@ export const products = pgTable("products", {
         .notNull()
         .default(0),
 
+    searchableField: text("searchable_field"),
+
     createdAt: timestamp("created_at", { withTimezone: true })
         .defaultNow()
         .notNull(),
