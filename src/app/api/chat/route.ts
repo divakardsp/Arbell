@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
-import { buyerAgent, AgentRunContext } from "@/agent";
+import { buyerAgent, AgentRunContext, createSseStream } from "@/agent";
 import { createAgentSession, getAgentSessionForUser } from "@/services/agent-log-service";
-import { ApiResponse } from "@/utils/ApiResponse";
-import { ApiError } from "@/utils/ApiError";
 import { handleApiError } from "@/utils/errorHandler";
 import { validateUUID } from "@/utils/validators";
+import { ApiError } from "@/utils/ApiError";
 
 export async function POST(request: NextRequest) {
     try {
@@ -55,21 +54,43 @@ export async function POST(request: NextRequest) {
             runId,
         };
 
-        // 5. Execute AI Buyer Agent
-        const result = await buyerAgent.run({
-            message: trimmedMessage,
-            context,
-        });
+        // 5. Create SSE Stream
+        const { stream, sendEvent, close } = createSseStream();
 
-        return ApiResponse.success(
-            {
-                sessionId: activeSessionId,
-                runId,
-                response: result.response,
+        // 6. Execute AI Buyer Agent asynchronously inside the stream lifecycle
+        (async () => {
+            try {
+                await buyerAgent.run(
+                    {
+                        message: trimmedMessage,
+                        context,
+                    },
+                    {
+                        onEvent: sendEvent,
+                    }
+                );
+            } catch (execError: any) {
+                console.error("Agent execution error in SSE stream:", execError);
+                sendEvent({
+                    type: "error",
+                    runId,
+                    message: execError.message || "Agent execution failed.",
+                });
+            } finally {
+                close();
+            }
+        })();
+
+        // 7. Return standard Server-Sent Events response
+        return new Response(stream, {
+            headers: {
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "Cache-Control": "no-cache, no-transform",
+                Connection: "keep-alive",
             },
-            "Agent response generated successfully"
-        );
+        });
     } catch (error) {
         return handleApiError(error);
     }
 }
+
