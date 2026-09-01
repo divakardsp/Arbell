@@ -9,6 +9,7 @@ import { BuyerAgentConfig, buyerConfig as defaultBuyerConfig } from "../buyer/bu
 import { MaxIterationsReachedError } from "./agent-errors";
 import { AgentEvent } from "./events/agent-events";
 import { getToolDisplayMessage } from "./events/tool-event-message";
+import { checkDomainGuardrail, GUARDRAIL_REJECTION_MESSAGE } from "../guardrail/domain-guardrail";
 
 /**
  * Core agent execution runner using OpenAI's Responses API with streaming.
@@ -43,8 +44,47 @@ export async function runAgent(
         },
     });
 
+    // 2. Execute Domain Guardrail check BEFORE connecting to MCP or entering agent loop
+    const guardrailDecision = await checkDomainGuardrail(request.message, config.model);
+
+    if (!guardrailDecision.allowed) {
+        console.warn(`[runAgent] Request rejected by domain guardrail:`, {
+            runId,
+            sessionId,
+            message: request.message,
+            reason: guardrailDecision.reason,
+        });
+
+        // Emit error event to client via SSE
+        emit({
+            type: "error",
+            runId,
+            message: GUARDRAIL_REJECTION_MESSAGE,
+        });
+
+        // Record run_failed audit event in database
+        await createAgentEvent({
+            sessionId,
+            runId,
+            eventType: "run_failed",
+            status: "failed",
+            outputData: {
+                error: GUARDRAIL_REJECTION_MESSAGE,
+                guardrailReason: guardrailDecision.reason,
+            },
+        });
+
+        // Terminate execution safely without proceeding to MCP tools or main agent loop
+        return {
+            sessionId,
+            runId,
+            response: GUARDRAIL_REJECTION_MESSAGE,
+            toolCallsCount: 0,
+        };
+    }
+
     try {
-        // 2. Discover MCP tools and adapt for OpenAI Responses API
+        // 3. Discover MCP tools and adapt for OpenAI Responses API
         emit({
             type: "status",
             runId,

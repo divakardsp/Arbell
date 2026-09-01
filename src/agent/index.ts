@@ -9,4 +9,6 @@ export * from "./core/events/tool-event-message";
 export * from "./transport/sse/sse-event-formatter";
 export * from "./transport/sse/sse-stream";
 export * from "./prompts/buyer-agent.prompt";
+export * from "./guardrail/domain-guardrail";
+export * from "./guardrail/domain-guardrail.prompt";
 
