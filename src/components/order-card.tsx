@@ -1,7 +1,16 @@
 import { type MockOrder, type OrderStatus } from "@/lib/mock-data";
 
+export interface DisplayOrder {
+    id: string;
+    productName: string;
+    description: string;
+    amount: string;
+    status: OrderStatus | string;
+    date: string;
+}
+
 interface OrderCardProps {
-    order: MockOrder;
+    order: DisplayOrder | MockOrder;
 }
 
 const statusConfig: Record<OrderStatus, { label: string; className: string }> = {
@@ -48,10 +57,11 @@ const statusConfig: Record<OrderStatus, { label: string; className: string }> = 
 };
 
 export function OrderCard({ order }: OrderCardProps) {
-    const statusInfo = statusConfig[order.status] || {
-        label: order.status,
-        className: "bg-muted/15 text-muted border-border",
-    };
+    const statusInfo =
+        (statusConfig as Record<string, { label: string; className: string }>)[order.status] || {
+            label: order.status,
+            className: "bg-muted/15 text-muted border-border",
+        };
 
     return (
         <div className="flex flex-col justify-between rounded-xl border border-border bg-surface p-5 transition-all duration-150 hover:border-border hover:shadow-xs">

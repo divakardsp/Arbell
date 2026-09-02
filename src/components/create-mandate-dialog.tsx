@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 interface CreateMandateDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onCreate: (data: { amount: string; validUntil: string }) => void;
+    onCreate: (data: { amount: number; validUntil: string }) => Promise<void> | void;
 }
 
 export function CreateMandateDialog({
@@ -37,8 +37,9 @@ export function CreateMandateDialog({
     const [amount, setAmount] = useState<string>("5000");
     const [validUntil, setValidUntil] = useState<string>(minDateStr);
     const [error, setError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
 
@@ -63,9 +64,15 @@ export function CreateMandateDialog({
             return;
         }
 
-        const formattedAmount = `₹${amountNum.toLocaleString("en-IN")}`;
-        onCreate({ amount: formattedAmount, validUntil });
-        onOpenChange(false);
+        try {
+            setIsSubmitting(true);
+            await onCreate({ amount: amountNum, validUntil });
+            onOpenChange(false);
+        } catch (err: any) {
+            setError(err.message || "Failed to create mandate");
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -150,9 +157,10 @@ export function CreateMandateDialog({
                         </Button>
                         <Button
                             type="submit"
+                            disabled={isSubmitting}
                             className="rounded-xl bg-brand text-white hover:bg-brand/90 text-xs shadow-xs"
                         >
-                            Authorize Mandate
+                            {isSubmitting ? "Authorizing..." : "Authorize Mandate"}
                         </Button>
                     </DialogFooter>
                 </form>
