@@ -114,6 +114,8 @@ export const agentEventStatusEnum = pgEnum("agent_event_status", [
 
 export const users = pgTable("users", {
     id: uuid("id").primaryKey().defaultRandom(),
+    clerkId: varchar("clerk_id", { length: 255 })
+        .unique(),
     name: varchar("name", { length: 255 }).notNull(),
     email: varchar("email", { length: 255 }).notNull().unique(),
     contact: varchar("contact", { length: 10 }),
