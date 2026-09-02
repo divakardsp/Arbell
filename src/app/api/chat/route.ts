@@ -4,32 +4,33 @@ import { createAgentSession, getAgentSessionForUser } from "@/services/agent-log
 import { handleApiError } from "@/utils/errorHandler";
 import { validateUUID } from "@/utils/validators";
 import { ApiError } from "@/utils/ApiError";
+import { requireCurrentUser } from "@/utils/auth";
 
 export async function POST(request: NextRequest) {
     try {
+        const currentUser = await requireCurrentUser();
+        const validUserId = currentUser.id;
+
         const body = await request.json();
 
         if (!body || typeof body !== "object") {
             throw ApiError.badRequest("Request body must be a valid JSON object.");
         }
 
-        const { userId, sessionId, message } = body;
+        const { sessionId, message } = body;
 
-        // 1. Validate userId
-        const validUserId = validateUUID(userId, "User ID");
-
-        // 2. Validate message
+        // 1. Validate message
         if (!message || typeof message !== "string" || message.trim() === "") {
             throw ApiError.badRequest("Message is required and must be a non-empty string.");
         }
 
         const trimmedMessage = message.trim();
 
-        // 3. Handle Session
+        // 2. Handle Session
         let activeSessionId: string;
 
         if (!sessionId || String(sessionId).trim() === "") {
-            // Case A: Create a new session for this user
+            // Case A: Create a new session for this authenticated user
             const newSession = await createAgentSession({
                 userId: validUserId,
                 title: trimmedMessage.slice(0, 100),
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
             activeSessionId = existingSession.id;
         }
 
-        // 4. Generate unique runId for this turn
+        // 3. Generate unique runId for this turn
         const runId = crypto.randomUUID();
 
         const context: AgentRunContext = {
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
             runId,
         };
 
-        // 5. Create SSE Stream
+        // 4. Create SSE Stream
         const { stream, sendEvent, close } = createSseStream();
 
         // 6. Execute AI Buyer Agent asynchronously inside the stream lifecycle
