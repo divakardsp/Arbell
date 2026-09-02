@@ -8,6 +8,7 @@ import { WelcomeScreen } from "@/components/welcome-screen";
 import { ChatMessage, type ChatMessageItem } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
 import { OrdersView } from "@/components/orders-view";
+
 import { MandatesView } from "@/components/mandates-view";
 import { ArrowDown } from "lucide-react";
 
@@ -100,6 +101,7 @@ export function ChatLayout() {
                         </div>
                         <div className="flex items-center gap-2">
                             <ThemeToggle />
+
                         </div>
                     </header>
 

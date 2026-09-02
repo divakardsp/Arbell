@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
     Sidebar,
     SidebarContent,
+    SidebarFooter,
     SidebarGroup,
     SidebarGroupContent,
     SidebarGroupLabel,
@@ -16,6 +17,7 @@ import {
     SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { Package, FileText, MessageSquare } from "lucide-react";
+import { NavUser } from "@/components/nav-user";
 
 export type ActiveView = "chat" | "orders" | "mandates";
 
@@ -140,6 +142,13 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
+
+            <SidebarSeparator className="mx-3 h-px bg-border" />
+
+            {/* Bottom Profile / Logout Section */}
+            <SidebarFooter className="p-2">
+                <NavUser />
+            </SidebarFooter>
 
             <SidebarRail />
         </Sidebar>
