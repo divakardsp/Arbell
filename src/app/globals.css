@@ -192,3 +192,19 @@ button {
     background: var(--border);
     border-radius: 999px;
 }
+
+@keyframes logo-float {
+
+    0%,
+    100% {
+        transform: scale(1) rotateZ(-1deg);
+    }
+
+    50% {
+        transform: scale(1.04) rotateZ(1.5deg)
+    }
+}
+
+.logo-float {
+    animation: logo-float 3s ease-in-out infinite;
+}

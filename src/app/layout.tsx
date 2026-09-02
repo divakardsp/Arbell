@@ -4,6 +4,8 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
+import { ClerkProvider } from '@clerk/nextjs'
+
 const inter = Inter({
   subsets: ["latin"],
   display: "swap",
@@ -30,9 +32,11 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className={inter.className}>
-        <ThemeProvider>
+        <ClerkProvider>
+          <ThemeProvider>
             {children}
-        </ThemeProvider>
+          </ThemeProvider>
+        </ClerkProvider>
       </body>
     </html>
   );
