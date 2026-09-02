@@ -16,31 +16,35 @@ import {
     SidebarRail,
     SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { Package, FileText, MessageSquare } from "lucide-react";
+import { Package, FileText, MessageSquare, Plus } from "lucide-react";
 import { NavUser } from "@/components/nav-user";
 
 export type ActiveView = "chat" | "orders" | "mandates";
 
+export interface ChatSidebarItem {
+    sessionId: string;
+    title: string;
+    createdAt?: Date | string;
+}
+
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
     activeView?: ActiveView;
     onSelectView?: (view: ActiveView) => void;
-    onSelectChat?: (title: string) => void;
+    onSelectChat?: (sessionId: string) => void;
     onNewChat?: () => void;
+    activeSessionId?: string | null;
+    chats?: ChatSidebarItem[];
+    isLoadingChats?: boolean;
 }
-
-const mockChats = [
-    "MacBook for development",
-    "Best headphones under ₹20k",
-    "Birthday gift ideas",
-    "Running shoes",
-    "Gaming laptop",
-];
 
 export function AppSidebar({
     activeView = "chat",
     onSelectView,
     onSelectChat,
     onNewChat,
+    activeSessionId,
+    chats = [],
+    isLoadingChats = false,
     ...props
 }: AppSidebarProps) {
     const { resolvedTheme } = useTheme();
@@ -117,28 +121,78 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
 
+                {/* New Chat Button */}
+                <SidebarGroup className="mt-3 p-0">
+                    <SidebarGroupContent>
+                        <SidebarMenu>
+                            <SidebarMenuItem>
+                                <SidebarMenuButton
+                                    onClick={() => {
+                                        onSelectView?.("chat");
+                                        onNewChat?.();
+                                    }}
+                                    className="gap-2.5 rounded-lg border border-border/80 bg-surface/80 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-hover hover:text-foreground cursor-pointer shadow-xs"
+                                >
+                                    <Plus className="size-4 text-muted" />
+                                    <span>New Chat</span>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        </SidebarMenu>
+                    </SidebarGroupContent>
+                </SidebarGroup>
+
                 {/* 3. Your Chats */}
-                <SidebarGroup className="mt-4 p-0">
+                <SidebarGroup className="mt-3 p-0">
                     <SidebarGroupLabel className="px-3 text-xs font-medium tracking-wide text-muted">
                         Your Chats
                     </SidebarGroupLabel>
                     <SidebarGroupContent className="mt-1">
-                        <SidebarMenu>
-                            {mockChats.map((chatTitle, index) => (
-                                <SidebarMenuItem key={index}>
-                                    <SidebarMenuButton
-                                        onClick={() => {
-                                            onSelectView?.("chat");
-                                            onSelectChat?.(chatTitle);
-                                        }}
-                                        className="group/chat-item flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/90 transition-colors hover:bg-hover hover:text-foreground"
-                                    >
-                                        <MessageSquare className="size-3.5 shrink-0 text-muted group-hover/chat-item:text-foreground" />
-                                        <span className="truncate">{chatTitle}</span>
-                                    </SidebarMenuButton>
-                                </SidebarMenuItem>
-                            ))}
-                        </SidebarMenu>
+                        {isLoadingChats ? (
+                            <div className="flex flex-col gap-1.5 px-2 py-1">
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/60" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/50" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/40" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/35" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/30" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/25" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/20" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/15" />
+                                <div className="h-7 w-full animate-pulse rounded-lg bg-border/5" />
+                            </div>
+                        ) : chats.length === 0 ? (
+                            <p className="px-3 py-2 text-xs text-muted">No chats yet</p>
+                        ) : (
+                            <SidebarMenu>
+                                {chats.map((chat) => {
+                                    const isSelected = activeSessionId === chat.sessionId;
+                                    return (
+                                        <SidebarMenuItem key={chat.sessionId}>
+                                            <SidebarMenuButton
+                                                isActive={isSelected}
+                                                onClick={() => {
+                                                    onSelectView?.("chat");
+                                                    onSelectChat?.(chat.sessionId);
+                                                }}
+                                                className={`group/chat-item flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+                                                    isSelected
+                                                        ? "bg-active text-accent font-semibold"
+                                                        : "text-foreground/90 hover:bg-hover hover:text-foreground"
+                                                }`}
+                                            >
+                                                <MessageSquare
+                                                    className={`size-3.5 shrink-0 ${
+                                                        isSelected
+                                                            ? "text-accent"
+                                                            : "text-muted group-hover/chat-item:text-foreground"
+                                                    }`}
+                                                />
+                                                <span className="truncate">{chat.title || "New Chat"}</span>
+                                            </SidebarMenuButton>
+                                        </SidebarMenuItem>
+                                    );
+                                })}
+                            </SidebarMenu>
+                        )}
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
