@@ -44,11 +44,12 @@ function extractConversationMessages(
 
     for (const event of events) {
         if (event.eventType === "run_started") {
-            const input = event.inputData as { query?: string } | null;
-            if (input && typeof input.query === "string" && input.query.trim() !== "") {
+            const input = event.inputData as { message?: string; query?: string } | null;
+            const text = input?.message || input?.query;
+            if (text && typeof text === "string" && text.trim() !== "") {
                 messages.push({
                     role: "user",
-                    content: input.query.trim(),
+                    content: text.trim(),
                 });
             }
         } else if (event.eventType === "run_completed") {

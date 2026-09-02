@@ -1,10 +1,29 @@
 import { NextRequest } from "next/server";
 import { buyerAgent, AgentRunContext, createSseStream } from "@/agent";
 import { createAgentSession, getAgentSessionForUser } from "@/services/agent-log-service";
+import { getUserChatHistory } from "@/services/chat-service";
 import { handleApiError } from "@/utils/errorHandler";
 import { validateUUID } from "@/utils/validators";
 import { ApiError } from "@/utils/ApiError";
+import { ApiResponse } from "@/utils/ApiResponse";
 import { requireCurrentUser } from "@/utils/auth";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(_request: NextRequest) {
+    try {
+        const currentUser = await requireCurrentUser();
+        const chatHistory = await getUserChatHistory(currentUser.id);
+
+        return ApiResponse.success(
+            chatHistory,
+            "User chat history retrieved successfully",
+            200
+        );
+    } catch (error) {
+        return handleApiError(error);
+    }
+}
 
 export async function POST(request: NextRequest) {
     try {
