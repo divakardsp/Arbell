@@ -22,7 +22,7 @@ export async function runAgent(
     options?: RunAgentOptions
 ): Promise<AgentResponse> {
     const { userId, sessionId, runId } = request.context;
-    const emit = options?.onEvent ?? (() => {});
+    const emit = options?.onEvent ?? (() => { });
     const mcpClient = new McpClient();
     let totalToolCalls = 0;
 
