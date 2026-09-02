@@ -5,6 +5,8 @@ export interface ChatMessageItem {
     id: string;
     role: "user" | "assistant";
     content: string;
+    status?: string;
+    isStreaming?: boolean;
 }
 
 interface ChatMessageProps {
@@ -38,11 +40,20 @@ export function ChatMessage({ message }: ChatMessageProps) {
             </div>
 
             <div className="flex max-w-[85%] flex-col gap-1 md:max-w-[75%]">
-                
                 <div className="rounded-2xl rounded-tl-sm border border-border bg-surface px-4 py-3 text-sm leading-relaxed text-foreground shadow-xs">
-                    <p className="whitespace-pre-wrap wrap-break-word text-foreground">
-                        {message.content}
-                    </p>
+                    {message.content ? (
+                        <p className="whitespace-pre-wrap wrap-break-word text-foreground">
+                            {message.content}
+                            {message.isStreaming && (
+                                <span className="inline-block size-1.5 ml-1 animate-pulse rounded-full bg-accent" />
+                            )}
+                        </p>
+                    ) : (
+                        <div className="flex items-center gap-2 text-xs text-muted">
+                            <div className="size-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                            <span>{message.status || "Thinking..."}</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

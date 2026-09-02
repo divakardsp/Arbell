@@ -12,13 +12,57 @@ import { OrdersView } from "@/components/orders-view";
 import { MandatesView } from "@/components/mandates-view";
 import { ArrowDown } from "lucide-react";
 
+import { sendChatMessage } from "@/lib/sse-chat-client";
+import type { ChatSidebarItem } from "@/components/app-sidebar";
+
 export function ChatLayout() {
     const [activeView, setActiveView] = useState<ActiveView>("chat");
     const [messages, setMessages] = useState<ChatMessageItem[]>([]);
     const [inputValue, setInputValue] = useState("");
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [isStreaming, setIsStreaming] = useState(false);
     const [showScrollBottom, setShowScrollBottom] = useState(false);
+    const [chatList, setChatList] = useState<ChatSidebarItem[]>([]);
+    const [isLoadingChats, setIsLoadingChats] = useState(true);
+    const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const currentSessionIdRef = useRef<string | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+
+    const fetchChatList = async () => {
+        try {
+            setIsLoadingChats(true);
+            const res = await fetch("/api/chat");
+            if (res.ok) {
+                const json = await res.json();
+                if (json.success && json.data?.chat) {
+                    setChatList(json.data.chat);
+                }
+            }
+        } catch (err) {
+            console.error("Failed to fetch chat list:", err);
+        } finally {
+            setIsLoadingChats(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchChatList();
+    }, []);
+
+    useEffect(() => {
+        currentSessionIdRef.current = sessionId;
+    }, [sessionId]);
+
+    useEffect(() => {
+        return () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        };
+    }, []);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -37,45 +81,206 @@ export function ChatLayout() {
         }
     }, [messages, activeView]);
 
-    const handleSendMessage = (textToSend?: string) => {
+    const handleSendMessage = async (textToSend?: string) => {
         const text = (textToSend !== undefined ? textToSend : inputValue).trim();
-        if (!text) return;
+        if (!text || isStreaming) return;
+
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
+        const userMsgId = `user-${Date.now()}`;
+        const assistantMsgId = `asst-${Date.now() + 1}`;
 
         const userMsg: ChatMessageItem = {
-            id: `user-${Date.now()}`,
+            id: userMsgId,
             role: "user",
             content: text,
         };
 
-        const mockAssistantMsg: ChatMessageItem = {
-            id: `asst-${Date.now() + 1}`,
+        const assistantMsg: ChatMessageItem = {
+            id: assistantMsgId,
             role: "assistant",
-            content: "Sure! I'll help you find the best options based on your requirements.",
+            content: "",
+            status: "Thinking...",
+            isStreaming: true,
         };
 
-        setMessages((prev) => [...prev, userMsg, mockAssistantMsg]);
+        setMessages((prev) => [...prev, userMsg, assistantMsg]);
         setInputValue("");
+        setIsStreaming(true);
         setActiveView("chat");
+
+        try {
+            await sendChatMessage({
+                message: text,
+                sessionId: currentSessionIdRef.current,
+                signal: abortController.signal,
+                onEvent: (event) => {
+                    switch (event.type) {
+                        case "run_started": {
+                            if (event.sessionId) {
+                                setSessionId(event.sessionId);
+                                currentSessionIdRef.current = event.sessionId;
+                            }
+                            break;
+                        }
+                        case "status": {
+                            setMessages((prev) =>
+                                prev.map((msg) =>
+                                    msg.id === assistantMsgId
+                                        ? { ...msg, status: event.message }
+                                        : msg
+                                )
+                            );
+                            break;
+                        }
+                        case "tool_started": {
+                            setMessages((prev) =>
+                                prev.map((msg) =>
+                                    msg.id === assistantMsgId
+                                        ? {
+                                              ...msg,
+                                              status:
+                                                  event.message ||
+                                                  `Executing ${event.toolName}...`,
+                                          }
+                                        : msg
+                                )
+                            );
+                            break;
+                        }
+                        case "tool_completed": {
+                            break;
+                        }
+                        case "text_delta": {
+                            setMessages((prev) =>
+                                prev.map((msg) =>
+                                    msg.id === assistantMsgId
+                                        ? {
+                                              ...msg,
+                                              content: msg.content + event.delta,
+                                              status: undefined,
+                                          }
+                                        : msg
+                                )
+                            );
+                            break;
+                        }
+                        case "run_completed": {
+                            setMessages((prev) =>
+                                prev.map((msg) =>
+                                    msg.id === assistantMsgId
+                                        ? {
+                                              ...msg,
+                                              content: event.response || msg.content,
+                                              status: undefined,
+                                              isStreaming: false,
+                                          }
+                                        : msg
+                                )
+                            );
+                            fetchChatList();
+                            break;
+                        }
+                        case "error": {
+                            setMessages((prev) =>
+                                prev.map((msg) =>
+                                    msg.id === assistantMsgId
+                                        ? {
+                                              ...msg,
+                                              content:
+                                                  msg.content.trim() !== ""
+                                                      ? `${msg.content}\n\n⚠️ ${event.message}`
+                                                      : `⚠️ ${event.message}`,
+                                              status: undefined,
+                                              isStreaming: false,
+                                          }
+                                        : msg
+                                )
+                            );
+                            fetchChatList();
+                            break;
+                        }
+                    }
+                },
+            });
+        } catch (err: any) {
+            if (err.name === "AbortError") {
+                return;
+            }
+            console.error("[ChatLayout] Error executing chat turn:", err);
+            const errorMessage =
+                err?.message ||
+                "Failed to communicate with assistant. Please try again.";
+            setMessages((prev) =>
+                prev.map((msg) =>
+                    msg.id === assistantMsgId
+                        ? {
+                              ...msg,
+                              content:
+                                  msg.content.trim() !== ""
+                                      ? `${msg.content}\n\n⚠️ ${errorMessage}`
+                                      : `⚠️ ${errorMessage}`,
+                              status: undefined,
+                              isStreaming: false,
+                          }
+                        : msg
+                )
+            );
+        } finally {
+            setIsStreaming(false);
+            if (abortControllerRef.current === abortController) {
+                abortControllerRef.current = null;
+            }
+        }
     };
 
     const handleSelectSuggestion = (suggestion: string) => {
         handleSendMessage(suggestion);
     };
 
-    const handleSelectSidebarChat = (chatTitle: string) => {
-        // Switch to a simulated mock conversation for the selected chat
-        const userMsg: ChatMessageItem = {
-            id: `user-${Date.now()}`,
-            role: "user",
-            content: chatTitle,
-        };
-        const assistantMsg: ChatMessageItem = {
-            id: `asst-${Date.now() + 1}`,
-            role: "assistant",
-            content: `I've pulled up your search for "${chatTitle}". Let me know what specific filters or recommendations you'd like to explore!`,
-        };
-        setMessages([userMsg, assistantMsg]);
+    const handleSelectSidebarChat = async (selectedSessionId: string) => {
+        if (selectedSessionId === sessionId && messages.length > 0) return;
+
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+        setIsStreaming(false);
+        setSessionId(selectedSessionId);
+        currentSessionIdRef.current = selectedSessionId;
         setActiveView("chat");
+        setIsLoadingMessages(true);
+
+        try {
+            const res = await fetch(`/api/chat/${selectedSessionId}`);
+            if (res.ok) {
+                const json = await res.json();
+                if (json.success && json.data?.messages) {
+                    const mapped: ChatMessageItem[] = json.data.messages.map(
+                        (
+                            m: { role: "user" | "assistant"; content: string },
+                            index: number
+                        ) => ({
+                            id: `${m.role}-${index}-${selectedSessionId}`,
+                            role: m.role,
+                            content: m.content,
+                        })
+                    );
+                    setMessages(mapped);
+                } else {
+                    setMessages([]);
+                }
+            }
+        } catch (err) {
+            console.error("Failed to load session messages:", err);
+        } finally {
+            setIsLoadingMessages(false);
+        }
     };
 
     return (
@@ -87,9 +292,20 @@ export function ChatLayout() {
                     onSelectView={setActiveView}
                     onSelectChat={handleSelectSidebarChat}
                     onNewChat={() => {
+                        if (abortControllerRef.current) {
+                            abortControllerRef.current.abort();
+                            abortControllerRef.current = null;
+                        }
+                        setSessionId(null);
+                        currentSessionIdRef.current = null;
+                        setIsStreaming(false);
+                        setIsLoadingMessages(false);
                         setMessages([]);
                         setActiveView("chat");
                     }}
+                    activeSessionId={sessionId}
+                    chats={chatList}
+                    isLoadingChats={isLoadingChats}
                 />
 
                 {/* Main Application Area */}
@@ -101,7 +317,6 @@ export function ChatLayout() {
                         </div>
                         <div className="flex items-center gap-2">
                             <ThemeToggle />
-
                         </div>
                     </header>
 
@@ -113,7 +328,14 @@ export function ChatLayout() {
                     ) : (
                         /* Chat Body */
                         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                            {messages.length === 0 ? (
+                            {isLoadingMessages ? (
+                                <div className="flex flex-1 items-center justify-center">
+                                    <div className="flex flex-col items-center gap-2.5 text-muted">
+                                        <div className="size-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                                        <p className="text-xs text-muted">Loading conversation...</p>
+                                    </div>
+                                </div>
+                            ) : messages.length === 0 ? (
                                 <div className="flex flex-1 flex-col overflow-y-auto">
                                     <WelcomeScreen onSelectSuggestion={handleSelectSuggestion} />
                                 </div>
@@ -133,7 +355,7 @@ export function ChatLayout() {
                             )}
 
                             {/* Floating Scroll-To-Bottom Arrow Button */}
-                            {showScrollBottom && messages.length > 0 && (
+                            {showScrollBottom && messages.length > 0 && !isLoadingMessages && (
                                 <button
                                     onClick={scrollToBottom}
                                     className="absolute bottom-28 left-1/2 -translate-x-1/2 z-40 flex size-8 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-md transition-all hover:bg-hover hover:text-foreground"
@@ -150,6 +372,7 @@ export function ChatLayout() {
                                         value={inputValue}
                                         onChange={setInputValue}
                                         onSubmit={() => handleSendMessage()}
+                                        disabled={isStreaming}
                                     />
                                 </div>
                             </div>
