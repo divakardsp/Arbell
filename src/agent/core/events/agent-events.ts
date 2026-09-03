@@ -29,6 +29,31 @@ export interface ToolCompletedEvent {
     toolName: string;
 }
 
+export interface ProductItemData {
+    id: string;
+    productName: string;
+    description: string | null;
+    category?: string;
+    price: string | number;
+    currency?: string;
+    attributes?: Record<string, string | number | boolean | unknown>;
+    availableStock?: number;
+    brand?: string;
+    rating?: number;
+    image?: string;
+    merchant?: {
+        id: string;
+        name: string | null;
+    };
+}
+
+export interface UIProductGridEvent {
+    type: "ui";
+    runId: string;
+    uiType: "product_grid";
+    products: ProductItemData[];
+}
+
 export interface TextDeltaEvent {
     type: "text_delta";
     runId: string;
@@ -54,6 +79,7 @@ export type AgentEvent =
     | ToolStartedEvent
     | ToolCompletedEvent
     | TextDeltaEvent
+    | UIProductGridEvent
     | RunCompletedEvent
     | ErrorEvent;
 

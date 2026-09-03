@@ -2,7 +2,7 @@ import type { ResponseFunctionToolCall } from "openai/resources/responses/respon
 import { openai } from "@/lib/openai";
 import { McpClient } from "@/mcp/client/mcp.client";
 import { adaptMcpToolsToOpenAI } from "@/mcp/client/mcp.tool-adapter";
-import { createAgentEvent } from "@/services/agent-log-service";
+import { createAgentEvent, getAgentEventsBySession } from "@/services/agent-log-service";
 import { BUYER_AGENT_SYSTEM_PROMPT } from "../prompts/buyer-agent.prompt";
 import { AgentRequest, AgentResponse, RunAgentOptions } from "../buyer/buyer.types";
 import { BuyerAgentConfig, buyerConfig as defaultBuyerConfig } from "../buyer/buyer.config";
@@ -11,9 +11,136 @@ import { AgentEvent } from "./events/agent-events";
 import { getToolDisplayMessage } from "./events/tool-event-message";
 import { checkDomainGuardrail, GUARDRAIL_REJECTION_MESSAGE } from "../guardrail/domain-guardrail";
 
+import { ProductItemData } from "./events/agent-events";
+
+function extractProductsFromToolData(data: any): ProductItemData[] {
+    if (!data) return [];
+    let items: any[] = [];
+    if (Array.isArray(data)) {
+        items = data;
+    } else if (data.products && Array.isArray(data.products)) {
+        items = data.products;
+    } else if (data.product && typeof data.product === "object") {
+        items = [data.product];
+    } else if (data.id && (data.productName || data.name)) {
+        items = [data];
+    }
+
+    const result: ProductItemData[] = [];
+    for (const item of items) {
+        if (!item || typeof item !== "object") continue;
+        const id = String(item.id || "").trim();
+        const productName = String(item.productName || item.name || "").trim();
+        if (!id || !productName) continue;
+
+        const rawPrice = item.price;
+        const price = typeof rawPrice === "number" ? rawPrice : String(rawPrice || "0");
+        const availableStock = item.availableStock ?? item.inventoryStock ?? item.stock ?? 0;
+        const description = typeof item.description === "string" ? item.description : null;
+        const category = typeof item.category === "string" ? item.category : undefined;
+        const currency = typeof item.currency === "string" ? item.currency : "INR";
+        const attributes = item.attributes && typeof item.attributes === "object" ? { ...item.attributes } : {};
+        const brand = attributes.brand ? String(attributes.brand) : undefined;
+        const rating = attributes.rating ? Number(attributes.rating) : (item.rating ? Number(item.rating) : undefined);
+        const image = attributes.image ? String(attributes.image) : (item.image ? String(item.image) : undefined);
+        const merchant = item.merchant && typeof item.merchant === "object"
+            ? {
+                  id: String(item.merchant.id || ""),
+                  name: item.merchant.name ? String(item.merchant.name) : null,
+              }
+            : undefined;
+
+        result.push({
+            id,
+            productName,
+            description,
+            category,
+            price,
+            currency,
+            attributes,
+            availableStock: typeof availableStock === "number" ? availableStock : parseInt(String(availableStock), 10) || 0,
+            brand,
+            rating,
+            image,
+            merchant,
+        });
+    }
+    return result;
+}
+
+/**
+ * Extracts conversation history from past session events to maintain multi-turn session context.
+ */
+function extractSessionHistoryForAgent(
+    events: Array<{
+        eventType: string;
+        runId: string;
+        inputData: unknown;
+        outputData: unknown;
+    }>,
+    currentRunId: string
+): Array<{ role: "user" | "assistant"; content: string }> {
+    const history: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+    for (const event of events) {
+        // Exclude events from the current turn
+        if (event.runId === currentRunId) continue;
+
+        if (event.eventType === "run_started") {
+            const input = event.inputData as { message?: string; query?: string } | null;
+            const text = input?.message || input?.query;
+            if (text && typeof text === "string" && text.trim() !== "") {
+                history.push({
+                    role: "user",
+                    content: text.trim(),
+                });
+            }
+        } else if (event.eventType === "run_completed") {
+            const output = event.outputData as { response?: string } | null;
+            if (output && typeof output.response === "string" && output.response.trim() !== "") {
+                history.push({
+                    role: "assistant",
+                    content: output.response.trim(),
+                });
+            }
+        }
+    }
+
+    return history;
+}
+
+/**
+ * Selects the top 5 most relevant products based on availability, ratings, and catalog ranking.
+ */
+function rankAndSelectTop5Products(products: ProductItemData[]): ProductItemData[] {
+    if (products.length <= 5) {
+        return products;
+    }
+
+    return [...products]
+        .sort((a, b) => {
+            // Prioritize in-stock items first
+            const aInStock = (a.availableStock ?? 0) > 0 ? 1 : 0;
+            const bInStock = (b.availableStock ?? 0) > 0 ? 1 : 0;
+            if (aInStock !== bInStock) {
+                return bInStock - aInStock;
+            }
+
+            // Prioritize higher ratings
+            const aRating = a.rating ?? 4.0;
+            const bRating = b.rating ?? 4.0;
+            if (bRating !== aRating) {
+                return bRating - aRating;
+            }
+
+            return 0;
+        })
+        .slice(0, 5);
+}
+
 /**
  * Core agent execution runner using OpenAI's Responses API with streaming.
- * Emits generic application lifecycle events (run_started, status, tool_started, text_delta, tool_completed, run_completed, error)
+ * Emits generic application lifecycle events (run_started, status, tool_started, text_delta, tool_completed, ui, run_completed, error)
  * and maintains database persistence through agent_events.
  */
 export async function runAgent(
@@ -25,6 +152,7 @@ export async function runAgent(
     const emit = options?.onEvent ?? (() => { });
     const mcpClient = new McpClient();
     let totalToolCalls = 0;
+    const collectedProductsMap = new Map<string, ProductItemData>();
 
     // 1. Emit & Record run_started event
     emit({
@@ -95,8 +223,25 @@ export async function runAgent(
         const mcpTools = await mcpClient.listTools();
         const openAITools = adaptMcpToolsToOpenAI(mcpTools);
 
+        // Fetch past session events for multi-turn conversational memory within this session
+        let sessionHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
+        try {
+            const pastEvents = await getAgentEventsBySession(sessionId);
+            sessionHistory = extractSessionHistoryForAgent(pastEvents, runId);
+        } catch (historyErr) {
+            console.warn(`[runAgent] Could not load session history for sessionId '${sessionId}':`, historyErr);
+        }
+
+        // Build initial conversational input array incorporating session context
+        const initialInput: any = sessionHistory.length > 0
+            ? [
+                  ...sessionHistory,
+                  { role: "user", content: request.message },
+              ]
+            : request.message;
+
         let previousResponseId: string | undefined = undefined;
-        let nextInput: any = request.message;
+        let nextInput: any = initialInput;
         let completeResponseText = "";
 
         // 3. Iterative LLM Tool Calling Loop with Streaming
@@ -246,6 +391,14 @@ export async function runAgent(
                         } catch {
                             parsedOutputData = toolOutputText;
                         }
+
+                        // Extract products from tool data
+                        const foundProducts = extractProductsFromToolData(parsedOutputData);
+                        for (const p of foundProducts) {
+                            if (!collectedProductsMap.has(p.id)) {
+                                collectedProductsMap.set(p.id, p);
+                            }
+                        }
                     } catch (toolError: any) {
                         toolOutputText = JSON.stringify({
                             error: toolError.message || "Failed to execute tool",
@@ -282,6 +435,19 @@ export async function runAgent(
                 nextInput = toolOutputs;
             } else {
                 // No further tool calls — final response completed
+                const productList = Array.from(collectedProductsMap.values());
+                if (productList.length > 0) {
+                    // Enforce top-5 product selection based on relevance, in-stock status, and ratings
+                    const top5Products = rankAndSelectTop5Products(productList);
+
+                    emit({
+                        type: "ui",
+                        runId,
+                        uiType: "product_grid",
+                        products: top5Products,
+                    });
+                }
+
                 const finalText =
                     completeResponseText ||
                     iterationOutputText ||
@@ -305,6 +471,7 @@ export async function runAgent(
                         response: finalText,
                         totalToolCalls,
                         iterations,
+                        productsCount: productList.length,
                     },
                 });
 
