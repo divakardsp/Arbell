@@ -27,16 +27,68 @@ export function createMcpServer(): McpServer {
         version: "1.0.0",
     });
 
-    for (const tool of mcpTools) {
-        server.registerTool(
-            tool.name,
-            {
-                description: tool.description,
-                inputSchema: tool.inputSchema,
-            },
-            tool.handler
-        );
-    }
+    server.registerTool(
+        searchProductsTool.name,
+        {
+            description: searchProductsTool.description,
+            inputSchema: searchProductsTool.inputSchema,
+        },
+        searchProductsTool.handler
+    );
+
+    server.registerTool(
+        getProductTool.name,
+        {
+            description: getProductTool.description,
+            inputSchema: getProductTool.inputSchema,
+        },
+        getProductTool.handler
+    );
+
+    server.registerTool(
+        getCategoriesTool.name,
+        {
+            description: getCategoriesTool.description,
+            inputSchema: getCategoriesTool.inputSchema,
+        },
+        getCategoriesTool.handler
+    );
+
+    server.registerTool(
+        compareProductsTool.name,
+        {
+            description: compareProductsTool.description,
+            inputSchema: compareProductsTool.inputSchema,
+        },
+        compareProductsTool.handler
+    );
+
+    server.registerTool(
+        getMerchantTool.name,
+        {
+            description: getMerchantTool.description,
+            inputSchema: getMerchantTool.inputSchema,
+        },
+        getMerchantTool.handler
+    );
+
+    server.registerTool(
+        getOrderTool.name,
+        {
+            description: getOrderTool.description,
+            inputSchema: getOrderTool.inputSchema,
+        },
+        getOrderTool.handler
+    );
+
+    server.registerTool(
+        getUserOrdersTool.name,
+        {
+            description: getUserOrdersTool.description,
+            inputSchema: getUserOrdersTool.inputSchema,
+        },
+        getUserOrdersTool.handler
+    );
 
     return server;
 }
