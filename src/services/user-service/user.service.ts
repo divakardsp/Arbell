@@ -41,6 +41,7 @@ export interface OrderSummary {
     status: string;
     amount: string;
     razorpayOrderId: string | null;
+    createdAt: string;
     merchant: {
         id: string;
         name: string | null;
@@ -88,7 +89,7 @@ export async function getUserById(userId: string): Promise<UserDetails> {
  */
 export async function getUserOrderHistory(userId: string): Promise<UserOrderHistoryResponse> {
     const trimmedUserId = userId.trim();
-    validateUserId(trimmedUserId);
+    validateUUID(trimmedUserId, "userId")
 
     // 1. Verify user exists
     const [user] = await db
@@ -112,6 +113,7 @@ export async function getUserOrderHistory(userId: string): Promise<UserOrderHist
             razorpayOrderId: orders.razorpayOrderId,
             merchantId: orders.merchantId,
             merchantName: merchants.name,
+            createdAt: orders.createdAt,
         })
         .from(orders)
         .leftJoin(merchants, eq(orders.merchantId, merchants.id))
@@ -181,6 +183,7 @@ export async function getUserOrderHistory(userId: string): Promise<UserOrderHist
             status: order.status,
             amount: order.amount,
             razorpayOrderId: order.razorpayOrderId,
+            createdAt: order.createdAt.toISOString(),
             merchant: {
                 id: order.merchantId,
                 name: order.merchantName,
