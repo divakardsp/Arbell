@@ -7,7 +7,9 @@ export function handleApiError(error: unknown) {
             {
                 success: false,
                 statusCode: error.statusCode,
+                code: error.code,
                 message: error.message,
+                ...(error.details ? { data: error.details } : {}),
             },
             { status: error.statusCode }
         );
