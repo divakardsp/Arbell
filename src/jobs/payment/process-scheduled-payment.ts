@@ -6,6 +6,7 @@ import { razorpayPaymentCall } from "@/services/payment-service";
 export const processScheduledPaymentsJob = async () => {
     try {
         const cutoff = new Date(Date.now() - (25 * 60 * 60 * 1000 + 30 * 60 * 1000));
+        // console.log(cutoff)
 
         const scheduledPayments = await db
             .select({
@@ -44,6 +45,7 @@ export const processScheduledPaymentsJob = async () => {
         }
 
         console.log(`[processScheduledPaymentsJob] Processing ${scheduledPayments.length} scheduled payments...`);
+        // console.dir(scheduledPayments, {depth:null})
         const results = await razorpayPaymentCall(scheduledPayments);
         console.log("[processScheduledPaymentsJob] Execution completed with results:", results);
 
