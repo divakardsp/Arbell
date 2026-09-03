@@ -21,6 +21,7 @@ import { encryptToken, decryptToken } from "@/utils/crypto";
 import { parseRazorpayError } from "./razorpay-error.util";
 import {
     getUserAuthorizations,
+    getActiveMandateForUser,
     holdAuthorizationReserve,
     releaseAuthorizationReserve,
     captureAuthorizationReserve,
@@ -123,6 +124,183 @@ export function verifyPaymentSignature(
     return { isValid };
 }
 
+export interface RazorpayCustomerRecord {
+    id: string;
+    userId: string;
+    razorpayCustomerId: string;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+/**
+ * Searches Razorpay for an existing Customer by email.
+ * Paginates through Razorpay customers and returns the matching customer object if found.
+ * Case-insensitive exact email match.
+ */
+export async function findRazorpayCustomerByEmail(
+    email: string
+): Promise<{ id: string; name?: string; email?: string; contact?: string } | null> {
+    if (!email || typeof email !== "string" || email.trim() === "") {
+        return null;
+    }
+
+    const normalizedTargetEmail = email.trim().toLowerCase();
+    const razorpay = getRazorpayInstance();
+    const pageSize = 100;
+    let skip = 0;
+    const maxPages = 10; // Safety limit: up to 1,000 customers scanned
+
+    for (let page = 0; page < maxPages; page++) {
+        let response: any;
+        try {
+            response = await razorpay.customers.all({
+                count: pageSize,
+                skip,
+            });
+        } catch (error: unknown) {
+            const parsed = parseRazorpayError(error);
+            console.error(`[findRazorpayCustomerByEmail] Error fetching customers from Razorpay:`, parsed);
+            throw ApiError.internal(`Failed to search Razorpay customers: ${parsed.description}`);
+        }
+
+        const items: Array<{ id: string; name?: string; email?: string; contact?: string | number; [key: string]: unknown }> =
+            response?.items || [];
+        if (items.length === 0) {
+            break;
+        }
+
+        const matchingCustomers = items.filter(
+            (c) => c.email && typeof c.email === "string" && c.email.trim().toLowerCase() === normalizedTargetEmail
+        );
+
+        if (matchingCustomers.length > 0) {
+            // Return the most relevant matching customer
+            const match = matchingCustomers[0];
+            return {
+                id: String(match.id),
+                name: match.name ? String(match.name) : undefined,
+                email: match.email ? String(match.email) : undefined,
+                contact: match.contact !== undefined ? String(match.contact) : undefined,
+            };
+        }
+
+        if (items.length < pageSize) {
+            // Reached the end of available records
+            break;
+        }
+
+        skip += pageSize;
+    }
+
+    return null;
+}
+
+/**
+ * Retrieves the user's Razorpay Customer mapping from the local database or resolves/creates it on Razorpay.
+ * Flow:
+ * 1. Check local DB (razorpay_customers) for existing customer mapping.
+ * 2. If missing, search Razorpay by user email.
+ * 3. If found on Razorpay, save customer ID to local DB (with conflict safety) and return.
+ * 4. If not found on Razorpay, create customer on Razorpay, save to DB, and return.
+ */
+export async function getOrCreateRazorpayCustomer(
+    userId: string
+): Promise<RazorpayCustomerRecord> {
+    const validUserId = validateUUID(userId, "User ID");
+
+    // 1. Check local database first
+    const [existingDbCustomer] = await db
+        .select()
+        .from(razorpayCustomers)
+        .where(eq(razorpayCustomers.userId, validUserId));
+
+    if (existingDbCustomer) {
+        return existingDbCustomer;
+    }
+
+    // Fetch user details for email & contact
+    const [user] = await db
+        .select({
+            id: users.id,
+            name: users.name,
+            email: users.email,
+            contact: users.contact,
+        })
+        .from(users)
+        .where(eq(users.id, validUserId));
+
+    if (!user) {
+        throw ApiError.notFound(`User with ID '${validUserId}' was not found.`);
+    }
+
+    if (!user.email || typeof user.email !== "string" || user.email.trim() === "") {
+        throw ApiError.badRequest(`User '${validUserId}' does not have a valid email address configured.`);
+    }
+
+    const razorpay = getRazorpayInstance();
+
+    // 2. Search Razorpay for an existing customer by email
+    const existingRazorpayCustomer = await findRazorpayCustomerByEmail(user.email);
+
+    let resolvedRazorpayCustomerId: string;
+
+    if (existingRazorpayCustomer && existingRazorpayCustomer.id) {
+        // 3. Existing Razorpay customer found
+        resolvedRazorpayCustomerId = existingRazorpayCustomer.id;
+    } else {
+        // 4. Customer NOT found on Razorpay -> Create a new customer
+        try {
+            const rzpCustomer = await razorpay.customers.create({
+                name: user.name,
+                email: user.email.trim(),
+                contact: user.contact || "9999999999",
+                fail_existing: 0,
+                notes: {
+                    userId: validUserId,
+                },
+            });
+            resolvedRazorpayCustomerId = rzpCustomer.id;
+        } catch (error: unknown) {
+            const parsed = parseRazorpayError(error);
+            console.error(`[getOrCreateRazorpayCustomer] Failed to create Razorpay Customer:`, parsed);
+            throw ApiError.internal(`Failed to create Razorpay Customer: ${parsed.description}`);
+        }
+    }
+
+    // 5. Save the resolved/created Customer ID in local database with upsert / conflict safety
+    try {
+        const [savedCustomer] = await db
+            .insert(razorpayCustomers)
+            .values({
+                userId: validUserId,
+                razorpayCustomerId: resolvedRazorpayCustomerId,
+            })
+            .onConflictDoUpdate({
+                target: razorpayCustomers.userId,
+                set: {
+                    razorpayCustomerId: resolvedRazorpayCustomerId,
+                    updatedAt: new Date(),
+                },
+            })
+            .returning();
+
+        return savedCustomer;
+    } catch (dbError: unknown) {
+        // Concurrency safeguard: If another concurrent request inserted, fetch the record
+        const [concurrencyCustomer] = await db
+            .select()
+            .from(razorpayCustomers)
+            .where(eq(razorpayCustomers.userId, validUserId));
+
+        if (concurrencyCustomer) {
+            return concurrencyCustomer;
+        }
+
+        console.error(`[getOrCreateRazorpayCustomer] Failed to save Razorpay customer record:`, dbError);
+        throw ApiError.internal("Failed to persist Razorpay customer mapping in database.");
+    }
+}
+
 /**
  * Core SBMD Flow: Buy Now with Razorpay UPI Reserve Pay.
  * 
@@ -219,18 +397,10 @@ export async function processSbmdPayment(
     const calculatedTotalStr = calculatedTotal.toFixed(2);
     const currency = input.currency || "INR";
 
-    // 3. STEP 1: CHECK ARBELL RESERVE
-    const userAuthsResponse = await getUserAuthorizations(validUserId, "active");
-    const now = Date.now();
+    // 3. STEP 1: FETCH ACTIVE MANDATE & VALIDATE AVAILABLE AMOUNT
+    const activeMandate = await getActiveMandateForUser(validUserId);
 
-    // Find a valid active universal reserve for this user with remainingAmount >= calculatedTotal and not expired
-    const validReserve = userAuthsResponse.authorizations.find((auth) => {
-        if (auth.status !== "active") return false;
-        if (auth.validUntil && new Date(auth.validUntil).getTime() <= now) return false;
-        return Number(auth.remainingAmount) >= calculatedTotal;
-    });
-
-    if (!validReserve) {
+    if (!activeMandate) {
         const [merchant] = await db
             .select({ id: merchants.id, name: merchants.name })
             .from(merchants)
@@ -239,7 +409,7 @@ export async function processSbmdPayment(
         return {
             status: "requires_reserve",
             message:
-                "No active universal payment authorization mandate found with sufficient balance. Please authorize a mandate first.",
+                "No active universal payment mandate found. Please create a payment UPM (Universal Payment Mandate) first.",
             userId: validUserId,
             merchantId,
             merchantName: merchant?.name,
@@ -248,42 +418,30 @@ export async function processSbmdPayment(
         };
     }
 
-    // 4. STEP 2: RESOLVE OR CREATE RAZORPAY CUSTOMER
-    const razorpay = getRazorpayInstance();
-    let dbCustomer = await db
-        .select()
-        .from(razorpayCustomers)
-        .where(eq(razorpayCustomers.userId, validUserId))
-        .then((rows) => rows[0]);
+    const availableAmountNum = Number(activeMandate.remainingAmount || 0);
 
-    if (!dbCustomer) {
-        let rzpCustomer;
-        try {
-            rzpCustomer = await razorpay.customers.create({
-                name: user.name,
-                email: user.email,
-                contact: "9999999999",
-                fail_existing: 0,
-                notes: {
-                    userId: validUserId,
-                },
-            });
-        } catch (error: unknown) {
-            const parsed = parseRazorpayError(error);
-            throw ApiError.internal(`Failed to create Razorpay Customer: ${parsed.description}`);
-        }
-
-        const [inserted] = await db
-            .insert(razorpayCustomers)
-            .values({
-                userId: validUserId,
-                razorpayCustomerId: rzpCustomer.id,
-            })
-            .returning();
-        dbCustomer = inserted;
+    // Validate that available mandate balance is sufficient for this purchase
+    if (availableAmountNum < calculatedTotal) {
+        throw ApiError.badRequest(
+            `Insufficient mandate amount. Available: ₹${availableAmountNum.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, required: ₹${calculatedTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+            "INSUFFICIENT_MANDATE_AMOUNT",
+            {
+                availableAmount: availableAmountNum.toFixed(2),
+                requestedAmount: calculatedTotalStr,
+                currency,
+                authorizationId: activeMandate.id,
+            }
+        );
     }
 
+    const validReserve = activeMandate;
+
+    // 4. STEP 2: RESOLVE OR CREATE RAZORPAY CUSTOMER
+    const razorpay = getRazorpayInstance();
+    const dbCustomer = await getOrCreateRazorpayCustomer(validUserId);
+
     // 5. STEP 3: CHECK EXISTING RAZORPAY TOKEN
+    const now = Date.now();
     const activeTokens = await db
         .select()
         .from(razorpayTokens)

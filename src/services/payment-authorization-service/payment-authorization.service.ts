@@ -28,6 +28,7 @@ export interface UserAuthorizationItem {
     reserveAmount: string;
     spentAmount: string;
     validUntil: string | null;
+    createdAt: string | null;
     status: string;
 }
 
@@ -270,6 +271,7 @@ export async function getUserAuthorizations(
             reserveAmount: paymentAuthorizations.reserveAmount,
             spentAmount: paymentAuthorizations.spentAmount,
             validUntil: paymentAuthorizations.validUntil,
+            createdAt: paymentAuthorizations.createdAt,
             status: paymentAuthorizations.status,
         })
         .from(paymentAuthorizations)
@@ -283,6 +285,7 @@ export async function getUserAuthorizations(
         reserveAmount: r.reserveAmount ?? "0.00",
         spentAmount: r.spentAmount ?? "0.00",
         validUntil: r.validUntil ? r.validUntil.toISOString() : null,
+        createdAt: r.createdAt ? r.createdAt.toISOString() : null,
         status: r.status,
     }));
 
@@ -290,6 +293,69 @@ export async function getUserAuthorizations(
         userId: validUserId,
         total: authorizations.length,
         authorizations,
+    };
+}
+
+/**
+ * Retrieves the single ACTIVE payment authorization mandate for a user.
+ * In Arbell, a user can have at most one active mandate at a time.
+ * If multiple active mandates exist due to legacy/inconsistent data, logs a warning and selects the latest active one.
+ * Returns null if no active, non-expired mandate exists.
+ */
+export async function getActiveMandateForUser(
+    userId: string
+): Promise<PaymentAuthorizationResponse | null> {
+    const validUserId = validateUUID(userId, "User ID");
+
+    // 1. Verify user exists
+    const [user] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, validUserId));
+
+    if (!user) {
+        throw ApiError.notFound(`User with ID '${validUserId}' was not found.`);
+    }
+
+    // 2. Query active mandates ordered by creation date descending
+    const activeMandates = await db
+        .select()
+        .from(paymentAuthorizations)
+        .where(
+            and(
+                eq(paymentAuthorizations.userId, validUserId),
+                eq(paymentAuthorizations.status, "active")
+            )
+        )
+        .orderBy(desc(paymentAuthorizations.createdAt));
+
+    if (activeMandates.length === 0) {
+        return null;
+    }
+
+    if (activeMandates.length > 1) {
+        console.warn(
+            `[getActiveMandateForUser] Invariant warning: User '${validUserId}' has ${activeMandates.length} active mandates.`
+        );
+    }
+
+    const latestActive = activeMandates[0];
+    const now = Date.now();
+
+    // Check expiration
+    if (latestActive.validUntil && new Date(latestActive.validUntil).getTime() <= now) {
+        return null;
+    }
+
+    return {
+        id: latestActive.id,
+        userId: latestActive.userId,
+        authorizedAmount: latestActive.authorizedAmount,
+        remainingAmount: latestActive.remainingAmount,
+        reserveAmount: latestActive.reserveAmount,
+        spentAmount: latestActive.spentAmount,
+        validUntil: latestActive.validUntil ? latestActive.validUntil.toISOString() : null,
+        status: latestActive.status,
     };
 }
 
