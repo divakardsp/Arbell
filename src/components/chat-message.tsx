@@ -43,7 +43,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 />
             </div>
 
-            <div className={`flex flex-col gap-2 ${hasProducts ? "w-full max-w-full" : "w-full max-w-full sm:max-w-[85%] lg:max-w-[80%]"}`}>
+            <div className={`flex flex-col gap-2 ${hasProducts ? "w-full max-w-full" : "max-w-[85%] sm:max-w-[85%] lg:max-w-[80%]"}`}>
                 {/* Text Message Bubble */}
                 {(message.content || !hasProducts) && (
                     <div className="rounded-2xl rounded-tl-sm border border-border bg-surface px-4 py-3 text-sm leading-relaxed text-foreground shadow-xs">
