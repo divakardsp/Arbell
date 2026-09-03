@@ -149,7 +149,7 @@ export function NavUser() {
 
                     {/* Dropdown */}
                     <DropdownMenuContent
-                        className="w-56 rounded-lg p-1.5 shadow-lg"
+                        className="w-56 rounded-lg p-1.5 shadow-lg bg-main"
                         side="top"
                         align="start"
                         sideOffset={8}

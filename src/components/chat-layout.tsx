@@ -14,6 +14,11 @@ import { ArrowDown } from "lucide-react";
 
 import { sendChatMessage } from "@/lib/sse-chat-client";
 import type { ChatSidebarItem } from "@/components/app-sidebar";
+import {
+    getStoredChatProducts,
+    saveChatProducts,
+    pruneOrphanedChatProducts,
+} from "@/lib/chat-product-storage";
 
 export function ChatLayout() {
     const [activeView, setActiveView] = useState<ActiveView>("chat");
@@ -38,7 +43,11 @@ export function ChatLayout() {
             if (res.ok) {
                 const json = await res.json();
                 if (json.success && json.data?.chat) {
-                    setChatList(json.data.chat);
+                    const chats: ChatSidebarItem[] = json.data.chat;
+                    setChatList(chats);
+                    // Deterministically prune product cache entries for deleted/non-existent chats
+                    const activeSessionIds = chats.map((c) => c.sessionId);
+                    pruneOrphanedChatProducts(activeSessionIds);
                 }
             }
         } catch (err) {
@@ -170,9 +179,39 @@ export function ChatLayout() {
                             );
                             break;
                         }
+                        case "ui": {
+                            if (event.uiType === "product_grid" && event.products && event.products.length > 0) {
+                                setMessages((prev) => {
+                                    const asstIdx = prev.findIndex((m) => m.id === assistantMsgId);
+                                    if (asstIdx !== -1) {
+                                        const activeSid = currentSessionIdRef.current;
+                                        if (activeSid) {
+                                            saveChatProducts(activeSid, asstIdx, event.products!);
+                                        }
+                                    }
+                                    return prev.map((msg) =>
+                                        msg.id === assistantMsgId
+                                            ? {
+                                                  ...msg,
+                                                  products: event.products,
+                                                  status: undefined,
+                                              }
+                                            : msg
+                                    );
+                                });
+                            }
+                            break;
+                        }
                         case "run_completed": {
-                            setMessages((prev) =>
-                                prev.map((msg) =>
+                            setMessages((prev) => {
+                                const asstIdx = prev.findIndex((m) => m.id === assistantMsgId);
+                                const currentMsg = asstIdx !== -1 ? prev[asstIdx] : null;
+                                const activeSid = currentSessionIdRef.current;
+                                if (currentMsg && currentMsg.products && activeSid) {
+                                    saveChatProducts(activeSid, asstIdx, currentMsg.products);
+                                }
+
+                                return prev.map((msg) =>
                                     msg.id === assistantMsgId
                                         ? {
                                               ...msg,
@@ -181,8 +220,8 @@ export function ChatLayout() {
                                               isStreaming: false,
                                           }
                                         : msg
-                                )
-                            );
+                                );
+                            });
                             fetchChatList();
                             break;
                         }
@@ -261,6 +300,7 @@ export function ChatLayout() {
             if (res.ok) {
                 const json = await res.json();
                 if (json.success && json.data?.messages) {
+                    const storedProductsMap = getStoredChatProducts(selectedSessionId);
                     const mapped: ChatMessageItem[] = json.data.messages.map(
                         (
                             m: { role: "user" | "assistant"; content: string },
@@ -269,6 +309,7 @@ export function ChatLayout() {
                             id: `${m.role}-${index}-${selectedSessionId}`,
                             role: m.role,
                             content: m.content,
+                            products: storedProductsMap[index] || undefined,
                         })
                     );
                     setMessages(mapped);

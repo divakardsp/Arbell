@@ -85,9 +85,9 @@ export function AppSidebar({
 
             <SidebarSeparator className="mx-3 h-px bg-border" />
 
-            <SidebarContent className="px-2 py-3">
-                {/* 1. Orders & 2. Your Mandates */}
-                <SidebarGroup className="p-0">
+            <SidebarContent className="flex flex-1 flex-col overflow-hidden px-2 py-3">
+                {/* 1. Orders & 2. Your Mandates (Fixed) */}
+                <SidebarGroup className="shrink-0 p-0">
                     <SidebarGroupContent>
                         <SidebarMenu>
                             <SidebarMenuItem>
@@ -121,8 +121,8 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
 
-                {/* New Chat Button */}
-                <SidebarGroup className="mt-3 p-0">
+                {/* New Chat Button (Fixed) */}
+                <SidebarGroup className="shrink-0 mt-3 p-0">
                     <SidebarGroupContent>
                         <SidebarMenu>
                             <SidebarMenuItem>
@@ -141,12 +141,12 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
 
-                {/* 3. Your Chats */}
-                <SidebarGroup className="mt-3 p-0">
-                    <SidebarGroupLabel className="px-3 text-xs font-medium tracking-wide text-muted">
+                {/* 3. Your Chats (Only this section scrolls vertically) */}
+                <SidebarGroup className="flex flex-1 min-h-0 flex-col mt-3 p-0">
+                    <SidebarGroupLabel className="shrink-0 px-3 text-xs font-medium tracking-wide text-muted">
                         Your Chats
                     </SidebarGroupLabel>
-                    <SidebarGroupContent className="mt-1">
+                    <SidebarGroupContent className="mt-1 flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1 scroll-smooth">
                         {isLoadingChats ? (
                             <div className="flex flex-col gap-1.5 px-2 py-1">
                                 <div className="h-7 w-full animate-pulse rounded-lg bg-border/60" />

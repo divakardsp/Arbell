@@ -32,13 +32,20 @@ export function OrdersView() {
                             ? `Purchased from ${o.merchant.name}`
                             : "Order details";
                     const amountFormatted = `₹${Number(o.amount || 0).toLocaleString("en-IN")}`;
+                    const formattedDate = o.createdAt
+                        ? new Date(o.createdAt).toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                          })
+                        : `Order #${o.id.slice(0, 8)}`;
                     return {
                         id: o.id,
                         productName: firstItemName,
                         description: itemsDesc,
                         amount: amountFormatted,
                         status: o.status || "confirmed",
-                        date: `Order #${o.id.slice(0, 8)}`,
+                        date: formattedDate,
                     };
                 });
                 setOrders(mapped);

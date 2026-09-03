@@ -18,6 +18,8 @@ export interface MandateItem {
     id: string;
     amountAuthorized: string;
     amountRemaining: string;
+    reserveAmount: string;
+    spentAmount: string;
     createdAt?: string;
     validUntil?: string;
     status: "active" | "revoked" | "exhausted" | "expired" | string;
@@ -43,6 +45,8 @@ export function MandatesView() {
                 const mapped: MandateItem[] = json.data.authorizations.map((a: any) => {
                     const authorizedFormatted = `₹${Number(a.authorizedAmount || 0).toLocaleString("en-IN")}`;
                     const remainingFormatted = `₹${Number(a.remainingAmount || 0).toLocaleString("en-IN")}`;
+                    const reserveFormatted = `₹${Number(a.reserveAmount || 0).toLocaleString("en-IN")}`;
+                    const spentFormatted = `₹${Number(a.spentAmount || 0).toLocaleString("en-IN")}`;
                     const validUntilFormatted = a.validUntil
                         ? new Date(a.validUntil).toLocaleDateString("en-GB", {
                               day: "2-digit",
@@ -61,6 +65,8 @@ export function MandatesView() {
                         id: a.id,
                         amountAuthorized: authorizedFormatted,
                         amountRemaining: remainingFormatted,
+                        reserveAmount: reserveFormatted,
+                        spentAmount: spentFormatted,
                         createdAt: createdAtFormatted,
                         validUntil: validUntilFormatted,
                         status: a.status || "active",
@@ -299,7 +305,7 @@ export function MandatesView() {
                             </div>
 
                             {/* Mandate Metrics Grid */}
-                            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                                 <div className="rounded-xl border border-border/50 bg-main/40 p-4">
                                     <div className="flex items-center gap-2 text-xs font-medium text-muted">
                                         <Wallet className="size-3.5" />
@@ -317,6 +323,26 @@ export function MandatesView() {
                                     </div>
                                     <p className="mt-1.5 text-lg font-bold tracking-tight text-brand">
                                         {activeMandate.amountRemaining}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border border-border/50 bg-main/40 p-4">
+                                    <div className="flex items-center gap-2 text-xs font-medium text-muted">
+                                        <ShieldCheck className="size-3.5 text-info" />
+                                        <span>Reserve Amount</span>
+                                    </div>
+                                    <p className="mt-1.5 text-lg font-bold tracking-tight text-foreground">
+                                        {activeMandate.reserveAmount}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border border-border/50 bg-main/40 p-4">
+                                    <div className="flex items-center gap-2 text-xs font-medium text-muted">
+                                        <Wallet className="size-3.5 text-warning" />
+                                        <span>Spent Amount</span>
+                                    </div>
+                                    <p className="mt-1.5 text-lg font-bold tracking-tight text-foreground">
+                                        {activeMandate.spentAmount}
                                     </p>
                                 </div>
 
