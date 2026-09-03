@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 import { ClerkProvider } from '@clerk/nextjs'
 
@@ -35,8 +37,13 @@ export default function RootLayout({
         <ClerkProvider>
           <ThemeProvider>
             {children}
+            <Toaster richColors position="top-right" />
           </ThemeProvider>
         </ClerkProvider>
+        <Script
+          src="https://checkout.razorpay.com/v1/checkout.js"
+          strategy="lazyOnload"
+        />
       </body>
     </html>
   );
