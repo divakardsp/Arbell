@@ -1,6 +1,5 @@
-import path from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { McpClientError } from "@/agent/core/agent-errors";
 
 export interface McpTool {
@@ -21,11 +20,12 @@ export interface McpToolResult {
 
 export class McpClient {
     private client: Client;
-    private transport: StdioClientTransport | null = null;
+    private transport: StreamableHTTPClientTransport | null = null;
     private isConnected = false;
 
     constructor(
-        private readonly serverPath: string = path.resolve(process.cwd(), "src/mcp/server.ts")
+        private readonly serverUrl: string = process.env.MCP_SERVER_URL || "http://localhost:3000/api/mcp",
+        private readonly authToken: string = process.env.MCP_AUTH_TOKEN || ""
     ) {
         this.client = new Client({
             name: "arbell-ai-buyer-client",
@@ -34,21 +34,42 @@ export class McpClient {
     }
 
     /**
-     * Connects to the Arbell MCP server via Stdio transport.
+     * Connects to the Arbell MCP server via Streamable HTTP transport.
      */
     async connect(): Promise<void> {
         if (this.isConnected) return;
 
+        const endpoint = this.serverUrl;
+        const token = this.authToken || process.env.MCP_AUTH_TOKEN;
+
+        if (!endpoint || endpoint.trim() === "") {
+            throw new McpClientError("MCP_SERVER_URL is not configured.");
+        }
+
+        if (!token || token.trim() === "") {
+            throw new McpClientError("MCP_AUTH_TOKEN is not configured.");
+        }
+
+        let parsedUrl: URL;
         try {
-            this.transport = new StdioClientTransport({
-                command: "bun",
-                args: ["run", this.serverPath],
+            parsedUrl = new URL(endpoint);
+        } catch (urlErr) {
+            throw new McpClientError(`Invalid MCP_SERVER_URL '${endpoint}'`, urlErr);
+        }
+
+        try {
+            this.transport = new StreamableHTTPClientTransport(parsedUrl, {
+                requestInit: {
+                    headers: {
+                        Authorization: `Bearer ${token.trim()}`,
+                    },
+                },
             });
 
             await this.client.connect(this.transport);
             this.isConnected = true;
         } catch (error) {
-            throw new McpClientError("Failed to connect to Arbell MCP Server", error);
+            throw new McpClientError("Failed to connect to Arbell MCP Server via Streamable HTTP", error);
         }
     }
 
@@ -89,7 +110,7 @@ export class McpClient {
     }
 
     /**
-     * Closes the MCP connection and cleans up transport child processes.
+     * Closes the MCP connection and cleans up transport resources.
      */
     async close(): Promise<void> {
         if (!this.isConnected) return;
@@ -104,3 +125,4 @@ export class McpClient {
         }
     }
 }
+
