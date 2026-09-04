@@ -163,7 +163,7 @@ export async function findRazorpayCustomerByEmail(
             throw ApiError.internal(`Failed to search Razorpay customers: ${parsed.description}`);
         }
 
-        const items: Array<{ id: string; name?: string; email?: string; contact?: string | number; [key: string]: unknown }> =
+        const items: Array<{ id: string; name?: string; email?: string; contact?: string | number;[key: string]: unknown }> =
             response?.items || [];
         if (items.length === 0) {
             break;
@@ -744,48 +744,25 @@ export async function confirmSbmdMandate(
         );
     }
 
-    // Check if payment is already confirmed
-    if (dBpayment.status === "captured" || dBorder.status === "confirmed") {
-        throw ApiError.badRequest("This payment has already been verified and confirmed.");
-    }
+
 
     let failureHandled = false;
-    // Helper to release stock, fail payment/order, and release held authorization reserve
+
     const handleFailure = async () => {
         if (failureHandled) return;
         failureHandled = true;
+
         try {
-            await db
-                .update(payments)
-                .set({ status: "failed" })
-                .where(eq(payments.id, validPaymentId));
-
-            await db
-                .update(orders)
-                .set({ status: "failed" })
-                .where(eq(orders.id, validOrderId));
-
-            const orderItemRows = await db
-                .select()
-                .from(orderItems)
-                .where(eq(orderItems.orderId, validOrderId));
-
-            for (const item of orderItemRows) {
-                await db
-                    .update(products)
-                    .set({
-                        reserveStock: sql`GREATEST(0, ${products.reserveStock} - ${item.quantity})`,
-                        availableStock: sql`${products.availableStock} + ${item.quantity}`,
-                    })
-                    .where(eq(products.id, item.productId));
-            }
-
-            await releaseAuthorizationReserve({
-                authorizationId: validAuthId,
-                amount: dBpayment.amount,
+            await executePaymentFailureTransition({
+                paymentId: validPaymentId,
+                orderId: validOrderId,
+                reason: "Payment verification failed",
             });
         } catch (cleanupErr) {
-            console.error("Error during failure cleanup:", cleanupErr);
+            console.error(
+                "Error during failure transition:",
+                cleanupErr
+            );
         }
     };
 
@@ -845,52 +822,89 @@ export async function confirmSbmdMandate(
             })
             .returning();
 
-        // 6. Update Payment Record
-        const isCaptured = paymentDetails.status === "captured";
-        const paymentStatus = isCaptured ? "captured" : "authorized";
-
-        const [updatedPayment] = await db
+        await db
             .update(payments)
             .set({
                 razorpayPaymentId,
                 razorpayTokenId: newToken.id,
-                status: paymentStatus,
             })
-            .where(eq(payments.id, validPaymentId))
-            .returning();
+            .where(eq(payments.id, validPaymentId));
 
-        let remainingAuthAmount: string | undefined;
+        // ---------------------------------------------------------
+        // 12. Re-fetch CURRENT DB state.
+        //
+        // The webhook may have completed the payment after our
+        // initial dBpayment/dBorder queries.
+        // ---------------------------------------------------------
 
-        // 7. If payment was captured directly on checkout, update order and capture reserve into spent
-        if (isCaptured) {
-            await db
-                .update(orders)
-                .set({ status: "confirmed" })
-                .where(eq(orders.id, validOrderId));
 
-            // Move stock from reserveStock to soldStock
-            const orderItemRows = await db
-                .select()
-                .from(orderItems)
-                .where(eq(orderItems.orderId, validOrderId));
 
-            for (const item of orderItemRows) {
-                await db
-                    .update(products)
-                    .set({
-                        reserveStock: sql`${products.reserveStock} - ${item.quantity}`,
-                        soldStock: sql`${products.soldStock} + ${item.quantity}`,
-                    })
-                    .where(eq(products.id, item.productId));
-            }
+        const [currentPayment] = await db
+            .select()
+            .from(payments)
+            .where(eq(payments.id, validPaymentId));
 
-            // Capture authorization reserve (moves from reserveAmount to spentAmount)
-            const captureResult = await captureAuthorizationReserve({
-                authorizationId: validAuthId,
-                amount: updatedPayment.amount,
-            });
-            remainingAuthAmount = captureResult.remainingAmount;
+        const [currentOrder] = await db
+            .select()
+            .from(orders)
+            .where(eq(orders.id, validOrderId));
+
+        if (!currentPayment || !currentOrder) {
+            throw ApiError.notFound(
+                "Payment or order record no longer exists."
+            );
         }
+
+        // ---------------------------------------------------------
+        // 13. Webhook already completed the success transition.
+        //
+        // Payment + order state tells us that:
+        //
+        // payment = captured
+        // order   = confirmed
+        //
+        // Therefore stock/order/authorization transition has
+        // already been completed by executePaymentSuccessTransition().
+        //
+        // We have already persisted the token above, so simply
+        // return success.
+        // ---------------------------------------------------------
+
+        if (
+            currentPayment.status === "captured" &&
+            currentOrder.status === "confirmed"
+        ) {
+            return {
+                success: true,
+                orderId: validOrderId,
+                paymentId: validPaymentId,
+                tokenId: newToken.id,
+                razorpayPaymentId,
+            };
+        }
+
+        // ---------------------------------------------------------
+        // 14. Webhook has NOT completed the success transition.
+        //
+        // Let the shared success transaction perform:
+        //
+        // payment → captured
+        // order → confirmed
+        // preDebitPayment → completed
+        // stock → sold
+        // authorization → spent
+        // ---------------------------------------------------------
+
+        const transition =
+            await executePaymentSuccessTransition({
+                paymentId: validPaymentId,
+                orderId: validOrderId,
+                razorpayPaymentId,
+            });
+
+        // ---------------------------------------------------------
+        // 15. Return success
+        // ---------------------------------------------------------
 
         return {
             success: true,
@@ -898,8 +912,8 @@ export async function confirmSbmdMandate(
             paymentId: validPaymentId,
             tokenId: newToken.id,
             razorpayPaymentId,
-            authorizationRemainingAmount: remainingAuthAmount,
         };
+
     } catch (error) {
         await handleFailure();
         throw error;
@@ -1066,6 +1080,13 @@ export async function executePaymentFailureTransition(params: {
 
         // Idempotency check: Already failed
         if (payment.status === "failed" && order.status === "failed") {
+            return { alreadyProcessed: true };
+        }
+
+        if (
+            payment.status === "captured" &&
+            order.status === "confirmed"
+        ) {
             return { alreadyProcessed: true };
         }
 
