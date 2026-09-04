@@ -1,6 +1,6 @@
 import { processScheduledPaymentsJob } from "@/jobs/payment/process-scheduled-payment";
 
-export function GET(request: Request) {
+export async function GET(request: Request) {
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
 
@@ -11,7 +11,7 @@ export function GET(request: Request) {
         });
     }
     console.log("CRON AUTHENTICATED=============================")
-    processScheduledPaymentsJob();
+    await processScheduledPaymentsJob();
 
     return Response.json({ success: true });
 }
