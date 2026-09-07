@@ -2,7 +2,7 @@
 
 > **⚠️ Current Mandate Limitation**
 >
-> Arbell currently uses **UPI Reserve Pay** to create bounded payment mandates and enable agentic payments. Due to the current **₹10,000 maximum reserve limit** supported by UPI Reserve Pay, a user can create a payment mandate with a maximum authorization amount of **₹10,000**. Consequently, Arbell currently supports agentic purchases within a maximum mandate limit of ₹10,000.
+> Arbell currently uses **UPI Reserve Pay Razorpay API** to create bounded payment mandates and enable agentic payments. Due to the current **₹10,000 maximum reserve limit** supported by UPI Reserve Pay, a user can create a payment mandate with a maximum authorization amount of **₹10,000**. Consequently, Arbell currently supports agentic purchases within a maximum mandate limit of ₹10,000.
 
 
 Live Demo: https://arbell-one.vercel.app/
