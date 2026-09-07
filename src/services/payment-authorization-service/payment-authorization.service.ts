@@ -3,6 +3,12 @@ import { db } from "@/lib";
 import { users, paymentAuthorizations, authorizationStatusEnum } from "@/db/schema";
 import { ApiError } from "@/utils/ApiError";
 import { validateUUID } from "@/utils/validators";
+import {
+    MANDATE_MIN_AMOUNT,
+    MANDATE_MAX_AMOUNT,
+    MANDATE_MIN_VALIDITY_DAYS,
+    MANDATE_MAX_VALIDITY_DAYS,
+} from "./constants";
 
 export interface CreatePaymentAuthorizationInput {
     userId: string;
@@ -82,18 +88,18 @@ export async function createAuthorization(
     // 1. Validate UUIDs
     const validUserId = validateUUID(input.userId, "User ID");
 
-    // 2. Validate Amount (Min: ₹500, Max: ₹15,000 INR)
+    // 2. Validate Amount (Min: ₹500, Max: ₹10,000 INR)
     const amountNum = Number(input.amount);
     if (isNaN(amountNum) || amountNum <= 0) {
         throw ApiError.badRequest("Amount must be a valid positive number.");
     }
-    if (amountNum < 500 || amountNum > 15000) {
+    if (amountNum < MANDATE_MIN_AMOUNT || amountNum > MANDATE_MAX_AMOUNT) {
         throw ApiError.badRequest(
-            "Authorization amount must be between ₹500 and ₹15,000 INR."
+            `Authorization amount must be between ₹${MANDATE_MIN_AMOUNT} and ₹${MANDATE_MAX_AMOUNT.toLocaleString("en-IN")} INR.`
         );
     }
 
-    // 3. Validate validUntil date (Min: 5 days, Max: 30 days from now)
+    // 3. Validate validUntil date (Min: 5 days, Max: 90 days from now)
     if (!input.validUntil) {
         throw ApiError.badRequest("validUntil is required.");
     }
@@ -103,12 +109,12 @@ export async function createAuthorization(
     }
 
     const now = Date.now();
-    const minExpiry = now + 5 * 24 * 60 * 60 * 1000;
-    const maxExpiry = now + 30 * 24 * 60 * 60 * 1000;
+    const minExpiry = now + MANDATE_MIN_VALIDITY_DAYS * 24 * 60 * 60 * 1000;
+    const maxExpiry = now + MANDATE_MAX_VALIDITY_DAYS * 24 * 60 * 60 * 1000;
 
     if (validUntilDate.getTime() < minExpiry || validUntilDate.getTime() > maxExpiry) {
         throw ApiError.badRequest(
-            "validUntil must be between 5 and 30 days from today."
+            `validUntil must be between ${MANDATE_MIN_VALIDITY_DAYS} and ${MANDATE_MAX_VALIDITY_DAYS} days from today.`
         );
     }
 

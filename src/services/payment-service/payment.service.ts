@@ -25,6 +25,7 @@ import {
     holdAuthorizationReserve,
     releaseAuthorizationReserve,
     captureAuthorizationReserve,
+    MANDATE_MAX_VALIDITY_DAYS,
 } from "@/services/payment-authorization-service";
 import {
     InitiateSbmdPaymentInput,
@@ -501,7 +502,7 @@ export async function processSbmdPayment(
         const maxAmountInSubunits = reserveAmountSubunits;
         const expireAtUnix = validReserve.validUntil
             ? Math.floor(new Date(validReserve.validUntil).getTime() / 1000)
-            : Math.floor(Date.now() / 1000) + 30 * 86400;
+            : Math.floor(Date.now() / 1000) + MANDATE_MAX_VALIDITY_DAYS * 86400;
 
         let authOrder;
         try {

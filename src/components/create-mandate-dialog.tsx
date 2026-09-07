@@ -12,6 +12,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    MANDATE_MIN_AMOUNT,
+    MANDATE_MAX_AMOUNT,
+    MANDATE_MIN_VALIDITY_DAYS,
+    MANDATE_MAX_VALIDITY_DAYS,
+} from "@/services/payment-authorization-service/constants";
 
 interface CreateMandateDialogProps {
     open: boolean;
@@ -27,11 +33,11 @@ export function CreateMandateDialog({
     const today = new Date();
     
     // Min 5 days from today
-    const minDate = new Date(today.getTime() + 5 * 24 * 60 * 60 * 1000);
+    const minDate = new Date(today.getTime() + MANDATE_MIN_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
     const minDateStr = minDate.toISOString().split("T")[0];
 
-    // Max 30 days from today
-    const maxDate = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    // Max 90 days from today
+    const maxDate = new Date(today.getTime() + MANDATE_MAX_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
     const maxDateStr = maxDate.toISOString().split("T")[0];
 
     const [amount, setAmount] = useState<string>("5000");
@@ -44,8 +50,8 @@ export function CreateMandateDialog({
         setError(null);
 
         const amountNum = Number(amount);
-        if (isNaN(amountNum) || amountNum < 500 || amountNum > 15000) {
-            setError("Amount must be between ₹500 and ₹15,000 INR.");
+        if (isNaN(amountNum) || amountNum < MANDATE_MIN_AMOUNT || amountNum > MANDATE_MAX_AMOUNT) {
+            setError(`Amount must be between ₹${MANDATE_MIN_AMOUNT} and ₹${MANDATE_MAX_AMOUNT.toLocaleString("en-IN")} INR.`);
             return;
         }
 
@@ -60,7 +66,7 @@ export function CreateMandateDialog({
         const selTime = selectedDate.getTime();
 
         if (selTime < minTime || selTime > maxTime) {
-            setError("Expiry date must be between 5 and 30 days from today.");
+            setError(`Expiry date must be between ${MANDATE_MIN_VALIDITY_DAYS} and ${MANDATE_MAX_VALIDITY_DAYS} days from today.`);
             return;
         }
 
@@ -68,8 +74,9 @@ export function CreateMandateDialog({
             setIsSubmitting(true);
             await onCreate({ amount: amountNum, validUntil });
             onOpenChange(false);
-        } catch (err: any) {
-            setError(err.message || "Failed to create mandate");
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Failed to create mandate";
+            setError(message);
         } finally {
             setIsSubmitting(false);
         }
@@ -95,7 +102,7 @@ export function CreateMandateDialog({
                                 Authorization Amount (₹)
                             </Label>
                             <span className="text-[11px] text-muted">
-                                Min: ₹500 · Max: ₹15,000
+                                Min: ₹{MANDATE_MIN_AMOUNT} · Max: ₹{MANDATE_MAX_AMOUNT.toLocaleString("en-IN")}
                             </span>
                         </div>
                         <div className="relative">
@@ -105,8 +112,8 @@ export function CreateMandateDialog({
                             <Input
                                 id="mandate-amount"
                                 type="number"
-                                min={500}
-                                max={15000}
+                                min={MANDATE_MIN_AMOUNT}
+                                max={MANDATE_MAX_AMOUNT}
                                 step={100}
                                 required
                                 value={amount}
@@ -124,7 +131,7 @@ export function CreateMandateDialog({
                                 Valid Until
                             </Label>
                             <span className="text-[11px] text-muted">
-                                5 to 30 days from today
+                                {MANDATE_MIN_VALIDITY_DAYS} to {MANDATE_MAX_VALIDITY_DAYS} days from today
                             </span>
                         </div>
                         <Input

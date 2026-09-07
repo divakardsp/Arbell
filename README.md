@@ -1,5 +1,10 @@
 # Arbell
 
+> **⚠️ Current Mandate Limitation**
+>
+> Arbell currently uses **UPI Reserve Pay** to create bounded payment mandates and enable agentic payments. Due to the current **₹10,000 maximum reserve limit** supported by UPI Reserve Pay, a user can create a payment mandate with a maximum authorization amount of **₹10,000**. Consequently, Arbell currently supports agentic purchases within a maximum mandate limit of ₹10,000.
+
+
 Live Demo: https://arbell-one.vercel.app/
 
 Arbell is an AI-powered e-commerce platform that combines conversational product discovery with automated payments. 
@@ -8,7 +13,7 @@ In standard online shopping, buyers spend considerable time searching catalogs, 
 
 Users interact with Arbell through a conversational chat interface. Instead of manual filtering, users describe what they need in natural language (for example, "Find me a lightweight laptop with 16GB RAM under 60,000"). The AI assistant understands the intent, verifies it through guardrails, queries the product catalog using Model Context Protocol (MCP) tools, and returns recommendations accompanied by interactive product cards directly in the chat stream.
 
-To streamline purchases, users create a payment authorization (or mandate reserve) with a spending limit and a validity period (e.g., up to 30 days). Once the user authorizes this mandate, purchases made through the platform are automatically drawn from this reserved amount until the mandate expires or the limit is reached, removing repetitive checkout steps for subsequent purchases.
+To streamline purchases, users create a payment authorization (or mandate reserve) with a spending limit and a validity period (e.g., up to 90 days). Once the user authorizes this mandate, purchases made through the platform are automatically drawn from this reserved amount until the mandate expires or the limit is reached, removing repetitive checkout steps for subsequent purchases.
 
 ---
 
@@ -189,7 +194,7 @@ sequenceDiagram
 
 ### Mandate Creation & Balance Tracking
 
-Users create a mandate through the interface by defining an authorization limit between ₹500 and ₹15,000 with an expiry between 5 and 30 days. The database tracks:
+Users create a mandate through the interface by defining an authorization limit between ₹500 and ₹10,000 with an expiry between 5 and 90 days. The database tracks:
 - `authorizedAmount`: The total spending limit approved.
 - `remainingAmount`: The available balance for new purchases.
 - `reserveAmount`: Funds currently placed on hold while an order waits for pre-debit processing.
